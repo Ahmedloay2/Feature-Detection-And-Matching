@@ -1,0 +1,108 @@
+# =========================
+# CMake build directories
+# =========================
+build/
+build-*/
+cmake-build-*/
+out/
+bin/
+lib/
+
+# =========================
+# CMake generated files
+# =========================
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+
+# =========================
+# Ninja / Make / MSBuild
+# =========================
+*.ninja
+.ninja_deps
+.ninja_log
+*.make
+*.mk
+
+# =========================
+# Compiled objects & binaries
+# =========================
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.out
+*.app
+
+# =========================
+# Debug / profiling
+# =========================
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.ilk
+*.prof
+*.gcda
+*.gcno
+*.gcov
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# IDEs / Editors
+# =========================
+
+## VS Code
+.vscode/
+
+## CLion / JetBrains
+.idea/
+
+## Visual Studio
+.vs/
+*.vcxproj*
+*.sln
+*.user
+*.suo
+*.opensdf
+*.sdf
+
+## Qt Creator
+*.pro.user*
+*.qbs.user*
+
+## Eclipse
+.project
+.cproject
+.settings/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =========================
+# Misc
+# =========================
+*.swp
+*~
