@@ -106,3 +106,7 @@ Desktop.ini
 # =========================
 *.swp
 *~
+
+*.txt
+*.json
+.gitignore
