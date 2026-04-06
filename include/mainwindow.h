@@ -1,17 +1,19 @@
 #pragma once
 
 #include <QMainWindow>
-#include <QLabel>
-#include <QPushButton>
-#include <QSlider>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QScrollArea>
+#include <QTimer>
 #include <QFutureWatcher>
 #include <QtConcurrent>
-#include "interactive_label.h"
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <memory>
+
+QT_BEGIN_NAMESPACE
+namespace Ui
+{
+    class MainWindow;
+}
+QT_END_NAMESPACE
 
 class MainWindow : public QMainWindow
 {
@@ -21,61 +23,80 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-private slots:
-    void onLoadImage1();
-    void onLoadImage2();
-    void onRunPipeline();
-    void onROISelected();
-    void onClearROIs();
-    void onImage1SiftFinished();
-    void onImage2SiftFinished();
-    void onSiftExtractionFinished();
+protected:
+    void paintEvent(QPaintEvent *event) override;
 
-    void onRatioSliderChanged(int value);
-    void onContrastSliderChanged(int value);
+private slots:
+    // ── Image loading ─────────────────────────────────────────────────────────
+    void onLoadFullScene();
+    void onLoadTargetTemplate();
+
+    // ── Slider / spin sync ────────────────────────────────────────────────────
+    void onSiftRatioSlider(int value);
+    void onSiftRatioSpin(double value);
+    void onSiftContrastSlider(int value);
+    void onSiftContrastSpin(double value);
+
+    // ── Debounce fires → re-extract SIFT on img1 ─────────────────────────────
+    void onDebounceTimeout();
+
+    // ── Async SIFT extraction on img1 finishes ────────────────────────────────
+    void onImg1SiftDone();
+
+    // ── Match pipeline ────────────────────────────────────────────────────────
+    void onExecuteMatch();
+    void onMatchDone();
+
+    // ── ROI box controls ──────────────────────────────────────────────────────
+    void onUndoRoi();
+    void onRedoRoi();
+    void onResetRoi();
+    void onRoiHistoryChanged(); // enable/disable undo-redo buttons
 
 private:
-    void downscaleImageIfNeeded(cv::Mat &img);
+    // ── Result struct returned from the async match thread ───────────────────
+    struct MatchResult
+    {
+        std::vector<cv::KeyPoint> kp2; // kps in img2 space (roi-offset applied)
+        std::vector<cv::DMatch> matches;
+        bool valid = false;
+    };
 
-    // ── Buttons ──────────────────────────────────────────────────────────────
-    QPushButton *btnLoadImage1;
-    QPushButton *btnLoadImage2;
-    QPushButton *btnRunPipeline;
-    QPushButton *btnClearROIs;
+    // ── Match lines for paintEvent ────────────────────────────────────────────
+    struct MatchLine
+    {
+        QPointF start;
+        QPointF end;
+    };
 
-    // ── Sliders ───────────────────────────────────────────────────────────────
-    // Lowe's ratio test  [50..95] → divided by 100 → [0.50..0.95]
-    QSlider *sliderRatio;
-    QLabel *lblRatioVal;
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    void downscaleIfNeeded(cv::Mat &img);
+    void runSiftOnImg1Async();          // start (or queue) bg extraction
+    void displayImg1WithKeypoints();    // draw circles on img1 panel
+    cv::Rect getRoiInImg2Space() const; // map selected ROI → img2 pixel coords
 
-    // Contrast threshold [1..30] → divided by 1000 → [0.001..0.030]
-    QSlider *sliderContrast;
-    QLabel *lblContrastVal;
+    // ── Qt / UI ───────────────────────────────────────────────────────────────
+    Ui::MainWindow *ui;
+    QTimer *debounceTimer;
 
-    // ── Status bar ───────────────────────────────────────────────────────────
-    QLabel *lblStatus;
+    // ── Async watchers ────────────────────────────────────────────────────────
+    QFutureWatcher<void> watcherSift1;        // img1 feature extraction
+    QFutureWatcher<MatchResult> watcherMatch; // img2 extraction + matching
 
-    // ── Image panels ─────────────────────────────────────────────────────────
-    QScrollArea *imageScrollArea1;
-    QLabel *lblImage1;
+    // ── Result buffers written by background threads via shared_ptr ──────────
+    std::shared_ptr<std::vector<cv::KeyPoint>> pendingKp1;
+    std::shared_ptr<cv::Mat> pendingDesc1;
+    bool sift1RerunPending = false;
 
-    QScrollArea *imageScrollArea2;
-    InteractiveLabel *lblImage2;
-
-    QScrollArea *imageScrollArea3;
-    QLabel *lblOutputImage;
-
-    // ── CV data ──────────────────────────────────────────────────────────────
+    // ── Persistent image/feature state ────────────────────────────────────────
     cv::Mat img1, img2;
-    std::vector<cv::Rect> roiRects;
+    std::vector<cv::KeyPoint> kp1;
+    cv::Mat desc1;
 
-    QFutureWatcher<void> watcher1, watcher2, watcherMatch;
-    std::vector<cv::KeyPoint> kp1, kp2;
-    cv::Mat desc1, desc2;
-    std::vector<std::vector<cv::KeyPoint>> roiKps;
-    std::vector<cv::Mat> roiDescs;
+    // ── Runtime parameters (kept in sync with sliders) ────────────────────────
+    float currentRatioThresh = 0.75f;
+    float currentContrastThresh = 0.007f;
 
-    // ── Threshold values (kept in sync with sliders) ──────────────────────────
-    float ratioThresh;    // default 0.80
-    float contrastThresh; // default 0.007
+    // ── Match lines drawn in paintEvent ───────────────────────────────────────
+    std::vector<MatchLine> matchLines;
 };

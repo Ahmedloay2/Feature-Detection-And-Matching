@@ -2,6 +2,9 @@
 #include <opencv2/imgproc.hpp>
 #include <cmath>
 #include <omp.h>
+#include "model/image.hpp"
+#include "processors/harris/grayscale.hpp"
+#include "utils/utils.hpp"
 
 namespace cv_assign
 {
@@ -14,9 +17,15 @@ namespace cv_assign
     {
         if (image.empty())
             return;
+
         cv::Mat gray;
         if (image.channels() == 3)
-            cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+        {
+            Image tempObj;
+            tempObj.mat = image.clone();
+            toGrayscale(tempObj);
+            gray = tempObj.get("grayscale").clone();
+        }
         else
             gray = image.clone();
         cv::Mat grayFloat;
@@ -55,9 +64,27 @@ namespace cv_assign
                 float total_sigma = SIGMA * std::pow(k, s);
                 float apply_sigma = std::sqrt(std::max(0.0f, total_sigma * total_sigma - base_sigma * base_sigma));
                 if (apply_sigma < 0.01f)
+                {
                     gaussPyramid[oct][s] = octBase.clone();
+                }
                 else
-                    cv::GaussianBlur(octBase, gaussPyramid[oct][s], cv::Size(0, 0), apply_sigma);
+                {
+                    int radius = static_cast<int>(std::ceil(3.0f * apply_sigma));
+                    int size = 2 * radius + 1;
+                    std::vector<float> kernel(size);
+                    float sum = 0.0f;
+                    for (int i = -radius; i <= radius; i++)
+                    {
+                        float val = std::exp(-(i * i) / (2.0f * apply_sigma * apply_sigma));
+                        kernel[i + radius] = val;
+                        sum += val;
+                    }
+                    for (int i = 0; i < size; i++)
+                        kernel[i] /= sum;
+
+                    cv::Mat temp = utils::convolveH<float>(octBase, kernel);
+                    gaussPyramid[oct][s] = utils::convolveV<float>(temp, kernel);
+                }
             }
         }
     }
@@ -179,7 +206,8 @@ namespace cv_assign
         }
     }
 
-    static void l2NormalizeVector(float* desc, int size) {
+    static void l2NormalizeVector(float *desc, int size)
+    {
         float norm = 0.0f;
         for (int i = 0; i < size; i++)
             norm += desc[i] * desc[i];
@@ -262,14 +290,14 @@ namespace cv_assign
                     }
                 }
             }
-            
+
             l2NormalizeVector(desc_ptr, 128);
 
             for (int i = 0; i < 128; i++)
             {
                 desc_ptr[i] = std::min(desc_ptr[i], 0.2f);
             }
-            
+
             l2NormalizeVector(desc_ptr, 128);
         }
     }

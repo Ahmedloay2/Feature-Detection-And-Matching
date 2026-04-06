@@ -1,586 +1,542 @@
 #include "mainwindow.h"
+#include "ui_mainwindow.h"
 #include "SiftCore.hpp"
-#include "Timer.hpp"
 #include "io/image_handler.hpp"
 
 #include <QFileDialog>
-#include <QMessageBox>
 #include <QApplication>
-#include <QGroupBox>
+#include <QPainter>
+#include <omp.h>
 #include <mutex>
-#include <opencv2/calib3d.hpp>
 
-// ── Palette colours matching each ROI index ───────────────────────────────────
-static const std::vector<cv::Scalar> ROI_COLORS = {
-    cv::Scalar(0, 0, 255),   // red
-    cv::Scalar(0, 255, 0),   // green
-    cv::Scalar(255, 0, 0),   // blue
-    cv::Scalar(0, 255, 255), // yellow
-    cv::Scalar(255, 0, 255), // magenta
-};
-
-// =============================================================================
+// ── Constructor ───────────────────────────────────────────────────────────────
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent), ratioThresh(0.80f), contrastThresh(0.007f)
+    : QMainWindow(parent), ui(new Ui::MainWindow)
 {
-    QWidget *central = new QWidget(this);
-    setCentralWidget(central);
-    QVBoxLayout *mainLayout = new QVBoxLayout(central);
-    mainLayout->setSpacing(4);
+    ui->setupUi(this);
 
-    // ── Row 1: Load / Run buttons ────────────────────────────────────────────
-    QHBoxLayout *btnLayout = new QHBoxLayout();
-    btnLoadImage1 = new QPushButton("Load Full Scene (Image 1)", this);
-    btnLoadImage2 = new QPushButton("Load Target (Image 2)", this);
-    btnClearROIs = new QPushButton("Clear Targets", this);
-    btnRunPipeline = new QPushButton("Run Custom SIFT & Match", this);
-    btnLayout->addWidget(btnLoadImage1);
-    btnLayout->addWidget(btnLoadImage2);
-    btnLayout->addWidget(btnClearROIs);
-    btnLayout->addWidget(btnRunPipeline);
-    mainLayout->addLayout(btnLayout);
+    // ── Debounce timer (fires 500ms after last slider move) ──────────────────
+    debounceTimer = new QTimer(this);
+    debounceTimer->setSingleShot(true);
+    debounceTimer->setInterval(500);
+    connect(debounceTimer, &QTimer::timeout, this, &MainWindow::onDebounceTimeout);
 
-    // ── Row 2: Threshold sliders ──────────────────────────────────────────────
-    QGroupBox *sliderBox = new QGroupBox("Detection Parameters", this);
-    sliderBox->setStyleSheet(
-        "QGroupBox { color:#90CAF9; font-weight:bold; border:1px solid #37474F;"
-        "            border-radius:4px; margin-top:6px; padding-top:4px; }"
-        "QGroupBox::title { subcontrol-origin:margin; left:8px; }");
+    // ── Async watchers ────────────────────────────────────────────────────────
+    connect(&watcherSift1, &QFutureWatcher<void>::finished,
+            this, &MainWindow::onImg1SiftDone);
+    connect(&watcherMatch, &QFutureWatcher<MatchResult>::finished,
+            this, &MainWindow::onMatchDone);
 
-    QHBoxLayout *sliderLayout = new QHBoxLayout(sliderBox);
-    sliderLayout->setContentsMargins(8, 2, 8, 4);
-    sliderLayout->setSpacing(12);
+    // ── Button connections ────────────────────────────────────────────────────
+    connect(ui->btnLoadFullScene, &QPushButton::clicked, this, &MainWindow::onLoadFullScene);
+    connect(ui->btnLoadTargetTemplate, &QPushButton::clicked, this, &MainWindow::onLoadTargetTemplate);
+    connect(ui->btnRunMatch, &QPushButton::clicked, this, &MainWindow::onExecuteMatch);
+    connect(ui->btnUndo, &QPushButton::clicked, this, &MainWindow::onUndoRoi);
+    connect(ui->btnRedo, &QPushButton::clicked, this, &MainWindow::onRedoRoi);
+    connect(ui->btnReset, &QPushButton::clicked, this, &MainWindow::onResetRoi);
 
-    // --- Lowe's Ratio ---
-    // 0.50 = very strict (almost no matches)
-    // 0.75 = Lowe's paper standard
-    // 0.80 = current default (slightly lenient)
-    // 0.95 = very lenient (many false matches)
-    auto *ratioTitleLabel = new QLabel("Lowe's Ratio Test:", this);
-    ratioTitleLabel->setStyleSheet("color:#CFD8DC; font-size:12px;");
+    // ── Slider ↔ spin sync ────────────────────────────────────────────────────
+    connect(ui->sliderRatio, &QSlider::valueChanged,
+            this, &MainWindow::onSiftRatioSlider);
+    connect(ui->spinRatio, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &MainWindow::onSiftRatioSpin);
+    connect(ui->sliderContrast, &QSlider::valueChanged,
+            this, &MainWindow::onSiftContrastSlider);
+    connect(ui->spinContrast, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &MainWindow::onSiftContrastSpin);
 
-    sliderRatio = new QSlider(Qt::Horizontal, this);
-    sliderRatio->setRange(50, 95); // 0.50 → 0.95
-    sliderRatio->setValue(80);     // default 0.80
-    sliderRatio->setTickPosition(QSlider::TicksBelow);
-    sliderRatio->setTickInterval(5);
-    sliderRatio->setMinimumWidth(180);
+    // ── ROI label signals ─────────────────────────────────────────────────────
+    // roiSelected fires when a box is completed → may trigger re-match if run btn was used
+    connect(ui->lblTemplate, &InteractiveLabel::roiSelected,
+            this, [this]()
+            {
+                matchLines.clear();
+                update();
+                // Enable Run button if both images ready
+                if (!img1.empty() && !img2.empty())
+                    ui->btnRunMatch->setEnabled(true); });
+    connect(ui->lblTemplate, &InteractiveLabel::roiHistoryChanged,
+            this, &MainWindow::onRoiHistoryChanged);
 
-    lblRatioVal = new QLabel("0.80", this);
-    lblRatioVal->setStyleSheet("color:#80DEEA; font-family:Consolas,monospace; font-size:12px; min-width:36px;");
-
-    auto *ratioHint = new QLabel("← strict  |  lenient →", this);
-    ratioHint->setStyleSheet("color:#546E7A; font-size:10px;");
-
-    sliderLayout->addWidget(ratioTitleLabel);
-    sliderLayout->addWidget(sliderRatio, 2);
-    sliderLayout->addWidget(lblRatioVal);
-    sliderLayout->addWidget(ratioHint);
-    sliderLayout->addSpacing(20);
-
-    // --- Contrast Threshold ---
-    // 0.001 = extreme-low  (flood of noisy KPs)
-    // 0.007 = relaxed      (default — good for low-contrast regions)
-    // 0.013 = Lowe standard
-    // 0.030 = strict       (only very prominent blobs)
-    auto *ctTitleLabel = new QLabel("Contrast Threshold:", this);
-    ctTitleLabel->setStyleSheet("color:#CFD8DC; font-size:12px;");
-
-    sliderContrast = new QSlider(Qt::Horizontal, this);
-    sliderContrast->setRange(1, 30); // 0.001 → 0.030
-    sliderContrast->setValue(7);     // default 0.007
-    sliderContrast->setTickPosition(QSlider::TicksBelow);
-    sliderContrast->setTickInterval(3);
-    sliderContrast->setMinimumWidth(180);
-
-    lblContrastVal = new QLabel("0.007", this);
-    lblContrastVal->setStyleSheet("color:#80DEEA; font-family:Consolas,monospace; font-size:12px; min-width:42px;");
-
-    auto *ctHint = new QLabel("← many KPs  |  few KPs →", this);
-    ctHint->setStyleSheet("color:#546E7A; font-size:10px;");
-
-    sliderLayout->addWidget(ctTitleLabel);
-    sliderLayout->addWidget(sliderContrast, 2);
-    sliderLayout->addWidget(lblContrastVal);
-    sliderLayout->addWidget(ctHint);
-
-    mainLayout->addWidget(sliderBox);
-
-    // ── Row 3: Image panels ──────────────────────────────────────────────────
-    QHBoxLayout *imagesLayout = new QHBoxLayout();
-
-    // Panel 1 — Full scene (keypoints shown after extraction)
-    imageScrollArea1 = new QScrollArea(this);
-    lblImage1 = new QLabel("Scene (Image 1)", this);
-    lblImage1->setAlignment(Qt::AlignCenter);
-    lblImage1->setScaledContents(true);
-    imageScrollArea1->setWidget(lblImage1);
-    imageScrollArea1->setWidgetResizable(true);
-
-    // Panel 2 — Target image (ROI drawing)
-    imageScrollArea2 = new QScrollArea(this);
-    lblImage2 = new InteractiveLabel(this);
-    lblImage2->setAlignment(Qt::AlignCenter);
-    lblImage2->setScaledContents(true);
-    imageScrollArea2->setWidget(lblImage2);
-    imageScrollArea2->setWidgetResizable(true);
-
-    // Panel 3 — Full scene (Image 1) annotated with matched keypoints
-    imageScrollArea3 = new QScrollArea(this);
-    lblOutputImage = new QLabel("Match Results (Image 1)", this);
-    lblOutputImage->setAlignment(Qt::AlignCenter);
-    lblOutputImage->setScaledContents(true);
-    imageScrollArea3->setWidget(lblOutputImage);
-    imageScrollArea3->setWidgetResizable(true);
-
-    imagesLayout->addWidget(imageScrollArea1, 1);
-    imagesLayout->addWidget(imageScrollArea2, 1);
-    imagesLayout->addWidget(imageScrollArea3, 1);
-    mainLayout->addLayout(imagesLayout, 1);
-
-    // ── Row 4: Status bar ────────────────────────────────────────────────────
-    lblStatus = new QLabel("Ready. Load images to begin.", this);
-    lblStatus->setStyleSheet(
-        "QLabel { color:#81C784; font-weight:bold; font-size:13px; padding:6px; }");
-    mainLayout->addWidget(lblStatus);
-
-    resize(1440, 760);
-    setWindowTitle("Custom Multi-Threaded SIFT Extractor");
-
-    // ── Signal connections ───────────────────────────────────────────────────
-    connect(btnLoadImage1, &QPushButton::clicked,
-            this, &MainWindow::onLoadImage1);
-    connect(btnLoadImage2, &QPushButton::clicked,
-            this, &MainWindow::onLoadImage2);
-    connect(btnClearROIs, &QPushButton::clicked,
-            this, &MainWindow::onClearROIs);
-    connect(btnRunPipeline, &QPushButton::clicked,
-            this, &MainWindow::onRunPipeline);
-    connect(lblImage2, &InteractiveLabel::roiSelected,
-            this, &MainWindow::onROISelected);
-    connect(&watcher1, &QFutureWatcher<void>::finished,
-            this, &MainWindow::onImage1SiftFinished);
-    connect(&watcher2, &QFutureWatcher<void>::finished,
-            this, &MainWindow::onImage2SiftFinished);
-    connect(&watcherMatch, &QFutureWatcher<void>::finished,
-            this, &MainWindow::onSiftExtractionFinished);
-
-    connect(sliderRatio, &QSlider::valueChanged,
-            this, &MainWindow::onRatioSliderChanged);
-    connect(sliderContrast, &QSlider::valueChanged,
-            this, &MainWindow::onContrastSliderChanged);
-
-    btnRunPipeline->setEnabled(false);
+    ui->lblStatus->setText("Ready. Load full scene and target template to begin.");
 }
 
-MainWindow::~MainWindow() {}
+MainWindow::~MainWindow() { delete ui; }
 
-// ── Slider handlers ──────────────────────────────────────────────────────────
-void MainWindow::onRatioSliderChanged(int value)
+// ── Parameter sync ────────────────────────────────────────────────────────────
+
+void MainWindow::onSiftRatioSlider(int value)
 {
-    ratioThresh = value / 100.0f;
-    lblRatioVal->setText(QString::number(ratioThresh, 'f', 2));
-    // Ratio change only affects matching — no re-extraction needed.
+    currentRatioThresh = value / 100.0f;
+    ui->spinRatio->blockSignals(true);
+    ui->spinRatio->setValue(currentRatioThresh);
+    ui->spinRatio->blockSignals(false);
+    // Ratio only affects matching — no re-extraction needed.
+    matchLines.clear();
+    update();
 }
 
-void MainWindow::onContrastSliderChanged(int value)
+void MainWindow::onSiftRatioSpin(double value)
 {
-    contrastThresh = value / 1000.0f;
-    lblContrastVal->setText(QString::number(contrastThresh, 'f', 3));
-    // Contrast threshold affects extraction — user must reload images to apply.
-    if (!img1.empty() || !img2.empty())
-        lblStatus->setText(QString(
-                               "Contrast threshold changed to %1 — reload images to re-extract with new value.")
-                               .arg(contrastThresh, 0, 'f', 3));
+    currentRatioThresh = (float)value;
+    ui->sliderRatio->blockSignals(true);
+    ui->sliderRatio->setValue(qRound(value * 100));
+    ui->sliderRatio->blockSignals(false);
+    matchLines.clear();
+    update();
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-void MainWindow::downscaleImageIfNeeded(cv::Mat &img)
+void MainWindow::onSiftContrastSlider(int value)
+{
+    currentContrastThresh = value / 1000.0f;
+    ui->spinContrast->blockSignals(true);
+    ui->spinContrast->setValue(currentContrastThresh);
+    ui->spinContrast->blockSignals(false);
+    // Contrast affects extraction → debounced re-run on img1
+    if (!img1.empty())
+    {
+        matchLines.clear();
+        update();
+        debounceTimer->start();
+    }
+}
+
+void MainWindow::onSiftContrastSpin(double value)
+{
+    currentContrastThresh = (float)value;
+    ui->sliderContrast->blockSignals(true);
+    ui->sliderContrast->setValue(qRound(value * 1000));
+    ui->sliderContrast->blockSignals(false);
+    if (!img1.empty())
+    {
+        matchLines.clear();
+        update();
+        debounceTimer->start();
+    }
+}
+
+// ── Debounce → re-run SIFT on img1 ───────────────────────────────────────────
+void MainWindow::onDebounceTimeout()
+{
+    if (!img1.empty())
+        runSiftOnImg1Async();
+}
+
+// ── Load images ───────────────────────────────────────────────────────────────
+
+void MainWindow::downscaleIfNeeded(cv::Mat &img)
 {
     const int MAX_DIM = 1024;
     if (img.cols > MAX_DIM || img.rows > MAX_DIM)
     {
-        float scale = std::min((float)MAX_DIM / img.cols, (float)MAX_DIM / img.rows);
-        cv::resize(img, img, cv::Size(), scale, scale, cv::INTER_AREA);
+        float s = std::min((float)MAX_DIM / img.cols, (float)MAX_DIM / img.rows);
+        cv::resize(img, img, cv::Size(), s, s, cv::INTER_AREA);
     }
 }
 
-// ── Load Image 1 ─────────────────────────────────────────────────────────────
-void MainWindow::onLoadImage1()
+void MainWindow::onLoadFullScene()
 {
-    QString fileName = QFileDialog::getOpenFileName(
-        this, "Open Image 1", "", "Images (*.png *.jpg *.jpeg *.bmp)");
-    if (fileName.isEmpty())
+    QString fn = QFileDialog::getOpenFileName(
+        this, "Open Full Scene", "", "Images (*.png *.jpg *.jpeg *.bmp)");
+    if (fn.isEmpty())
         return;
 
-    try
+    img1 = cv::imread(fn.toStdString());
+    if (img1.empty())
     {
-        img1 = loadImage(fileName.toStdString()).mat;
-    }
-    catch (const std::exception &e)
-    {
-        QMessageBox::critical(this, "Error loading image", e.what());
+        ui->lblStatus->setText("Failed to load image.");
         return;
     }
-    downscaleImageIfNeeded(img1);
+    downscaleIfNeeded(img1);
 
+    // Show immediately (without circles — they come after SIFT)
     cv::Mat rgb;
     cv::cvtColor(img1, rgb, cv::COLOR_BGR2RGB);
-    QImage qimg(rgb.data, rgb.cols, rgb.rows, (int)rgb.step, QImage::Format_RGB888);
-    lblImage1->setPixmap(QPixmap::fromImage(qimg.copy()));
+    ui->lblOutputImage->setPixmap(
+        QPixmap::fromImage(QImage(rgb.data, rgb.cols, rgb.rows, (int)rgb.step,
+                                  QImage::Format_RGB888)
+                               .copy()));
 
-    lblStatus->setText(QString("Image 1 loaded (%1×%2). Extracting features…")
-                           .arg(img1.cols)
-                           .arg(img1.rows));
+    ui->lblStatus->setText(
+        QString("Full scene loaded (%1×%2). Extracting SIFT features…")
+            .arg(img1.cols)
+            .arg(img1.rows));
 
-    btnLoadImage1->setEnabled(false);
-    btnLoadImage2->setEnabled(false);
-    btnRunPipeline->setEnabled(false);
-    QApplication::processEvents();
+    matchLines.clear();
+    update();
 
-    float ct = contrastThresh;
-    watcher1.setFuture(QtConcurrent::run([this, ct]()
-                                         {
-        try {
-            kp1.clear(); desc1.release();
-            cv_assign::SiftProcessor::extractFeatures(img1, kp1, desc1, ct);
-        } catch (...) {} }));
+    // Auto-start async SIFT extraction
+    runSiftOnImg1Async();
 }
 
-void MainWindow::onImage1SiftFinished()
+void MainWindow::onLoadTargetTemplate()
 {
-    if (!kp1.empty())
-    {
-        cv::Mat display;
-        cv::drawKeypoints(img1, kp1, display, cv::Scalar::all(-1),
-                          cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-        cv::cvtColor(display, display, cv::COLOR_BGR2RGB);
-        QImage qimg(display.data, display.cols, display.rows,
-                    (int)display.step, QImage::Format_RGB888);
-        lblImage1->setPixmap(QPixmap::fromImage(qimg.copy()));
-        lblStatus->setText(
-            QString("Image 1: %1 keypoints detected (contrast threshold = %2).")
-                .arg(kp1.size())
-                .arg(contrastThresh, 0, 'f', 3));
-    }
-    else
-        lblStatus->setText("Image 1: extraction failed or found no keypoints.");
-
-    btnLoadImage1->setEnabled(true);
-    btnLoadImage2->setEnabled(true);
-    if (!img1.empty() && !img2.empty() && !roiRects.empty())
-        btnRunPipeline->setEnabled(true);
-}
-
-// ── Load Image 2 ─────────────────────────────────────────────────────────────
-void MainWindow::onLoadImage2()
-{
-    QString fileName = QFileDialog::getOpenFileName(
-        this, "Open Image 2", "", "Images (*.png *.jpg *.jpeg *.bmp)");
-    if (fileName.isEmpty())
+    QString fn = QFileDialog::getOpenFileName(
+        this, "Open Target Template", "", "Images (*.png *.jpg *.jpeg *.bmp)");
+    if (fn.isEmpty())
         return;
 
-    try
+    img2 = cv::imread(fn.toStdString());
+    if (img2.empty())
     {
-        img2 = loadImage(fileName.toStdString()).mat;
-    }
-    catch (const std::exception &e)
-    {
-        QMessageBox::critical(this, "Error loading image", e.what());
+        ui->lblStatus->setText("Failed to load image.");
         return;
     }
-    downscaleImageIfNeeded(img2);
+    downscaleIfNeeded(img2);
 
-    // Show clean image immediately so user can draw ROIs
+    // Show clean image — NO SIFT circles on target
     cv::Mat rgb;
     cv::cvtColor(img2, rgb, cv::COLOR_BGR2RGB);
-    QImage qimg(rgb.data, rgb.cols, rgb.rows, (int)rgb.step, QImage::Format_RGB888);
-    lblImage2->setPixmap(QPixmap::fromImage(qimg.copy()));
-    lblImage2->clearROI();
-    roiRects.clear();
+    ui->lblTemplate->setPixmap(
+        QPixmap::fromImage(QImage(rgb.data, rgb.cols, rgb.rows, (int)rgb.step,
+                                  QImage::Format_RGB888)
+                               .copy()));
+    ui->lblTemplate->clearROI();
+    matchLines.clear();
+    update();
 
-    lblStatus->setText(QString("Image 2 loaded (%1×%2). Extracting features…")
-                           .arg(img2.cols)
-                           .arg(img2.rows));
+    ui->lblStatus->setText(
+        QString("Target loaded (%1×%2). Draw ROI box(es), then click Run Matches.")
+            .arg(img2.cols)
+            .arg(img2.rows));
 
-    btnLoadImage1->setEnabled(false);
-    btnLoadImage2->setEnabled(false);
-    btnRunPipeline->setEnabled(false);
-    QApplication::processEvents();
-
-    float ct = contrastThresh;
-    watcher2.setFuture(QtConcurrent::run([this, ct]()
-                                         {
-        try {
-            kp2.clear(); desc2.release();
-            cv_assign::SiftProcessor::extractFeatures(img2, kp2, desc2, ct);
-        } catch (...) {} }));
+    // Enable Run if scene also loaded and ROI drawn, otherwise wait
+    ui->btnRunMatch->setEnabled(!img1.empty() && !ui->lblTemplate->getSelectedROIs().empty());
 }
 
-void MainWindow::onImage2SiftFinished()
+// ── Async SIFT extraction on img1 ─────────────────────────────────────────────
+//
+//  Pattern: only one extraction runs at a time.
+//  If a new run is requested while one is in flight, we set a flag and
+//  re-queue when the current run finishes.
+
+void MainWindow::runSiftOnImg1Async()
 {
-    // Keep Image 2 display clean (no keypoint circles) — user needs to draw ROI boxes
-    cv::Mat rgb2;
-    cv::cvtColor(img2, rgb2, cv::COLOR_BGR2RGB);
-    QImage q2(rgb2.data, rgb2.cols, rgb2.rows, (int)rgb2.step, QImage::Format_RGB888);
-    lblImage2->setPixmap(QPixmap::fromImage(q2.copy()));
+    if (watcherSift1.isRunning())
+    {
+        // Mark that another run is needed; onImg1SiftDone will pick it up.
+        sift1RerunPending = true;
+        return;
+    }
 
-    lblStatus->setText(kp2.empty()
-                           ? "Image 2: extraction failed or no keypoints."
-                           : QString("Image 2: %1 keypoints detected. Draw ROI box(es) on the target region.")
-                                 .arg(kp2.size()));
+    sift1RerunPending = false;
 
-    btnLoadImage1->setEnabled(true);
-    btnLoadImage2->setEnabled(true);
-    if (!img1.empty() && !img2.empty() && !roiRects.empty())
-        btnRunPipeline->setEnabled(true);
+    float ct = currentContrastThresh;
+    cv::Mat imgCopy = img1.clone(); // thread-safe copy — main thread keeps img1
+
+    pendingKp1 = std::make_shared<std::vector<cv::KeyPoint>>();
+    pendingDesc1 = std::make_shared<cv::Mat>();
+
+    // Capture shared_ptrs by value so the lambda owns them.
+    auto kpRef = pendingKp1;
+    auto descRef = pendingDesc1;
+
+    watcherSift1.setFuture(QtConcurrent::run([imgCopy, ct, kpRef, descRef]()
+                                             { cv_assign::SiftProcessor::extractFeatures(imgCopy, *kpRef, *descRef, ct); }));
 }
 
-// ── ROI selection ─────────────────────────────────────────────────────────────
-void MainWindow::onROISelected()
+void MainWindow::onImg1SiftDone()
 {
-    auto qrois = lblImage2->getSelectedROIs();
-    roiRects.clear();
-    for (auto &r : qrois)
-        roiRects.push_back(cv::Rect(r.x(), r.y(), r.width(), r.height()));
-    lblStatus->setText(
-        QString("%1 target ROI(s) selected. Press \"Run\" to match.")
-            .arg(roiRects.size()));
-    if (!img1.empty() && !img2.empty() && !roiRects.empty())
-        btnRunPipeline->setEnabled(true);
+    // If slider moved again while this was running, kick off another extraction
+    // and wait — don't update the display with stale parameters.
+    if (sift1RerunPending)
+    {
+        runSiftOnImg1Async();
+        return;
+    }
+
+    kp1 = *pendingKp1;
+    desc1 = *pendingDesc1;
+
+    displayImg1WithKeypoints();
+
+    ui->lblStatus->setText(
+        QString("Scene: %1 keypoints detected (contrast = %2).")
+            .arg(kp1.size())
+            .arg(currentContrastThresh, 0, 'f', 3));
 }
 
-void MainWindow::onClearROIs()
+void MainWindow::displayImg1WithKeypoints()
 {
-    lblImage2->clearROI();
-    roiRects.clear();
-    lblStatus->setText("Targets cleared. Draw new ROI boxes on Image 2.");
-    btnRunPipeline->setEnabled(false);
-}
-
-// ── Run pipeline ──────────────────────────────────────────────────────────────
-void MainWindow::onRunPipeline()
-{
-    if (img1.empty() || img2.empty() || roiRects.empty())
+    if (img1.empty() || kp1.empty())
         return;
 
-    btnRunPipeline->setText("Processing…");
-    btnRunPipeline->setEnabled(false);
-    btnLoadImage1->setEnabled(false);
-    btnLoadImage2->setEnabled(false);
-    QApplication::processEvents();
-
-    watcherMatch.setFuture(QtConcurrent::run([this]()
-                                             {
-        try {
-            roiKps.clear(); roiDescs.clear();
-            for (size_t i = 0; i < roiRects.size(); ++i)
-            {
-                std::vector<cv::KeyPoint> localKps;
-                cv::Mat localDesc;
-                const cv::Rect &roi = roiRects[i];
-                for (size_t j = 0; j < kp2.size(); ++j)
-                {
-                    if (roi.contains(kp2[j].pt))
-                    {
-                        localKps.push_back(kp2[j]);
-                        localDesc.push_back(desc2.row((int)j));
-                    }
-                }
-                roiKps.push_back(localKps);
-                roiDescs.push_back(localDesc.empty() ? cv::Mat() : localDesc.clone());
-            }
-        } catch (...) {} }));
+    cv::Mat vis;
+    cv::drawKeypoints(img1, kp1, vis, cv::Scalar::all(-1),
+                      cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
+    ui->lblOutputImage->setPixmap(
+        QPixmap::fromImage(QImage(vis.data, vis.cols, vis.rows,
+                                  (int)vis.step, QImage::Format_RGB888)
+                               .copy()));
 }
 
-// ── Results — Panel 3 shows Image 1 annotated with match locations ─────────────
-//
-//  Design intent:
-//    Panel 2 = Image 2 (target) with the ROI box(es) the user drew
-//    Panel 3 = Image 1 (full scene) with coloured circles where each ROI's
-//              features were found — one colour per ROI so you can cross-
-//              reference panel 2 and panel 3 visually.
-//
-void MainWindow::onSiftExtractionFinished()
+// ── ROI helper ────────────────────────────────────────────────────────────────
+
+cv::Rect MainWindow::getRoiInImg2Space() const
 {
-    try
+    auto rois = ui->lblTemplate->getSelectedROIs();
+    if (rois.empty() || img2.empty())
+        return cv::Rect();
+
+    // Use the last-drawn ROI box. getSelectedROIs() returns rects in pixmap
+    // pixel space which == img2 space (since we set the pixmap without pre-scaling).
+    QRect r = rois.back();
+    int x = std::max(0, r.x());
+    int y = std::max(0, r.y());
+    int w = std::min(r.width(), img2.cols - x);
+    int h = std::min(r.height(), img2.rows - y);
+    if (w <= 0 || h <= 0)
+        return cv::Rect();
+    return cv::Rect(x, y, w, h);
+}
+
+// ── Matching ──────────────────────────────────────────────────────────────────
+
+void MainWindow::onExecuteMatch()
+{
+    if (img1.empty() || img2.empty())
+        return;
+    if (kp1.empty() || desc1.empty())
     {
-        if (desc1.empty() || kp1.empty() || desc1.type() != CV_32F || desc1.rows < 2)
-            throw cv::Exception(cv::Error::StsError, "Image 1 descriptors empty.", "", __FILE__, __LINE__);
+        ui->lblStatus->setText("Re-run SIFT first.");
+        return;
+    }
+    if (watcherMatch.isRunning())
+        return;
 
-        // ── Visual Setup: Cross-Panel Composite Image ────────────────────────
-        cv::Mat final_composite;
-        int totalMatches = 0;
+    cv::Rect roi = getRoiInImg2Space();
+    if (roi.area() <= 0)
+    {
+        ui->lblStatus->setText("Draw an ROI box on the target first.");
+        return;
+    }
 
-        for (size_t idx = 0; idx < roiRects.size(); ++idx)
+    ui->btnRunMatch->setEnabled(false);
+    ui->btnLoadFullScene->setEnabled(false);
+    ui->btnLoadTargetTemplate->setEnabled(false);
+    ui->lblStatus->setText("Running SIFT matching…");
+    matchLines.clear();
+    update();
+
+    // Snapshot everything the worker thread needs — no shared mutable state.
+    cv::Mat roiImg = img2(roi).clone();
+    int ox = roi.x, oy = roi.y;
+    cv::Mat d1copy = desc1.clone();
+    std::vector<cv::KeyPoint> kp1copy = kp1;
+    float ratio = currentRatioThresh;
+    float ct = currentContrastThresh;
+
+    watcherMatch.setFuture(QtConcurrent::run(
+        [roiImg, ox, oy, d1copy, kp1copy, ratio, ct]() -> MatchResult
         {
-            const auto &roi_kp = roiKps[idx];
-            const auto &roi_desc = roiDescs[idx];
-            const auto &roi = roiRects[idx];
-            cv::Scalar color = ROI_COLORS[idx % ROI_COLORS.size()];
+            MatchResult res;
 
-            if (roi_desc.empty() || roi_kp.empty() ||
-                roi_desc.type() != CV_32F || roi_desc.rows < 2 || desc1.rows < 2)
-                continue;
+            // ── Extract SIFT on the target ROI sub-image ─────────────────────
+            cv::Mat desc2;
+            cv_assign::SiftProcessor::extractFeatures(roiImg, res.kp2, desc2, ct);
 
-            // 1. Custom SSD matching with thread-safe vector
-            std::vector<cv::DMatch> good_matches;
+            if (desc2.empty() || desc2.rows < 2 || d1copy.empty())
+                return res;
 
-#pragma omp parallel for
-            for (int i = 0; i < roi_desc.rows; ++i)
+            // Offset kp2 so they are in img2 space (not sub-image space).
+            for (auto &kp : res.kp2)
             {
-                const float *q_ptr = roi_desc.ptr<float>(i);
-                float bestDistSq = 1e30f, secondBestDistSq = 1e30f;
-                int bestIdx = -1, secondBestIdx = -1;
+                kp.pt.x += ox;
+                kp.pt.y += oy;
+            }
 
-                for (int j = 0; j < desc1.rows; ++j)
+            // ── Custom SSD matching with Lowe ratio test ─────────────────────
+            // We use SSD (as required by the assignment) and apply Lowe's
+            // ratio test to distinguish genuine from ambiguous matches.
+            const int N = desc2.rows;
+            const int M = d1copy.rows;
+
+            std::vector<cv::DMatch> raw;
+            raw.reserve(N);
+            std::mutex mtx;
+
+#pragma omp parallel for schedule(dynamic, 32)
+            for (int i = 0; i < N; ++i)
+            {
+                const float *q = desc2.ptr<float>(i);
+                float best = 1e30f, second = 1e30f;
+                int bestIdx = -1, secondIdx = -1;
+
+                for (int j = 0; j < M; ++j)
                 {
-                    const float *t_ptr = desc1.ptr<float>(j);
-                    float ssd = 0.0f;
-                    for (int d = 0; d < 128; d++)
+                    const float *t = d1copy.ptr<float>(j);
+                    float ssd = 0.f;
+                    // Unrolled 128-dim SSD
+                    for (int d = 0; d < 128; d += 8)
                     {
-                        float diff = q_ptr[d] - t_ptr[d];
-                        ssd += diff * diff;
+                        float d0 = q[d] - t[d], d1 = q[d + 1] - t[d + 1], d2 = q[d + 2] - t[d + 2], d3 = q[d + 3] - t[d + 3];
+                        float d4 = q[d + 4] - t[d + 4], d5 = q[d + 5] - t[d + 5], d6 = q[d + 6] - t[d + 6], d7 = q[d + 7] - t[d + 7];
+                        ssd += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3 + d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7;
                     }
-
-                    if (ssd < bestDistSq)
+                    if (ssd < best)
                     {
-                        secondBestDistSq = bestDistSq;
-                        secondBestIdx = bestIdx;
-                        bestDistSq = ssd;
+                        second = best;
+                        secondIdx = bestIdx;
+                        best = ssd;
                         bestIdx = j;
                     }
-                    else if (ssd < secondBestDistSq)
+                    else if (ssd < second)
                     {
-                        secondBestDistSq = ssd;
-                        secondBestIdx = j;
+                        second = ssd;
+                        secondIdx = j;
                     }
                 }
 
-                // 2. Lowe's ratio test manually
-                if (bestIdx != -1 && secondBestIdx != -1)
+                if (bestIdx >= 0 && secondIdx >= 0 &&
+                    std::sqrt(best) < ratio * std::sqrt(second))
                 {
-                    if (std::sqrt(bestDistSq) < ratioThresh * std::sqrt(secondBestDistSq))
-                    {
-                        cv::DMatch match(i, bestIdx, std::sqrt(bestDistSq));
-#pragma omp critical
-                        good_matches.push_back(match);
-                    }
+                    std::lock_guard<std::mutex> lk(mtx);
+                    raw.push_back(cv::DMatch(i, bestIdx, std::sqrt(best)));
                 }
             }
 
-            // 3. RANSAC Geometric Verification via Homography
-            std::vector<cv::DMatch> inlier_matches;
-            if (good_matches.size() >= 4)
+            // ── RANSAC homography filtering to remove geometric outliers ─────
+            if (raw.size() >= 4)
             {
-                std::vector<cv::Point2f> srcPts, dstPts;
-                for (const auto &m : good_matches)
+                std::vector<cv::Point2f> src, dst;
+                for (auto &m : raw)
                 {
-                    srcPts.push_back(roi_kp[m.queryIdx].pt);
-                    dstPts.push_back(kp1[m.trainIdx].pt);
+                    src.push_back(res.kp2[m.queryIdx].pt);
+                    dst.push_back(kp1copy[m.trainIdx].pt);
                 }
-
-                std::vector<uchar> inliersMask;
-                cv::Mat H = cv::findHomography(srcPts, dstPts, cv::RANSAC, 3.0, inliersMask);
-
-                for (size_t i = 0; i < inliersMask.size(); ++i)
-                {
-                    if (inliersMask[i])
-                    {
-                        inlier_matches.push_back(good_matches[i]);
-                    }
-                }
-            }
-
-            totalMatches += (int)inlier_matches.size();
-
-            // 4. Draw Cross-Panel Connections
-            cv::Mat crop = img2(roi).clone();
-
-            int maxRows = std::max(crop.rows, img1.rows);
-            int totalCols = crop.cols + img1.cols;
-            cv::Mat composite = cv::Mat::zeros(maxRows, totalCols, CV_8UC3);
-
-            cv::Mat outCrop = composite(cv::Rect(0, 0, crop.cols, crop.rows));
-            crop.copyTo(outCrop);
-            cv::Mat outImg1 = composite(cv::Rect(crop.cols, 0, img1.cols, img1.rows));
-            img1.copyTo(outImg1);
-
-            // Highlight the extracted patch boundary
-            cv::rectangle(composite, cv::Rect(0, 0, crop.cols, crop.rows), color, 2);
-
-            for (const auto &match : inlier_matches)
-            {
-                cv::Point2f pt1 = roi_kp[match.queryIdx].pt;
-                // Shift src pt to be relative to the cropped ROI box
-                pt1.x -= roi.x;
-                pt1.y -= roi.y;
-
-                // Shift target pt to the right panel
-                cv::Point2f pt2 = kp1[match.trainIdx].pt + cv::Point2f(crop.cols, 0);
-
-                cv::circle(composite, pt1, 4, color, 1, cv::LINE_AA);
-                cv::circle(composite, pt2, 4, color, 1, cv::LINE_AA);
-                cv::line(composite, pt1, pt2, color, 1, cv::LINE_AA);
-            }
-
-            // Stack vertically in final composite if multiple ROIs exist
-            if (final_composite.empty())
-            {
-                final_composite = composite;
+                std::vector<uchar> inliers;
+                cv::findHomography(src, dst, cv::RANSAC, 3.0, inliers);
+                for (size_t i = 0; i < inliers.size(); i++)
+                    if (inliers[i])
+                        res.matches.push_back(raw[i]);
             }
             else
             {
-                int maxW = std::max(final_composite.cols, composite.cols);
-                cv::Mat top = cv::Mat::zeros(final_composite.rows, maxW, CV_8UC3);
-                final_composite.copyTo(top(cv::Rect(0, 0, final_composite.cols, final_composite.rows)));
-                cv::Mat bot = cv::Mat::zeros(composite.rows, maxW, CV_8UC3);
-                composite.copyTo(bot(cv::Rect(0, 0, composite.cols, composite.rows)));
-                cv::vconcat(top, bot, final_composite);
+                res.matches = raw;
             }
-        }
 
-        cv::Mat composite = final_composite.empty() ? img1.clone() : final_composite;
+            res.valid = true;
+            return res;
+        }));
+}
 
-        // ── Overlay a compact legend on composite result ────────────────────────
-        int ly = 24;
-        for (size_t idx = 0; idx < roiRects.size(); ++idx)
-        {
-            cv::Scalar color = ROI_COLORS[idx % ROI_COLORS.size()];
-            std::string label = "ROI " + std::to_string(idx + 1);
-            cv::rectangle(composite, cv::Point(8, ly - 12), cv::Point(22, ly + 2), color, -1);
-            cv::putText(composite, label, cv::Point(30, ly),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
-            ly += 24;
-        }
+void MainWindow::onMatchDone()
+{
+    ui->btnRunMatch->setEnabled(true);
+    ui->btnLoadFullScene->setEnabled(true);
+    ui->btnLoadTargetTemplate->setEnabled(true);
 
-        lblStatus->setText(
-            QString("Matched %1 geometric pair(s) across %2 ROI(s).  "
-                    "Ratio=%.2f  |  Contrast thr=%.3f")
-                .arg(totalMatches)
-                .arg(roiRects.size())
-                .arg((double)ratioThresh)
-                .arg((double)contrastThresh));
-
-        // ── Push result to Panel 3 ────────────────────────────────────────────
-        cv::cvtColor(composite, composite, cv::COLOR_BGR2RGB);
-        QImage qout(composite.data, composite.cols, composite.rows,
-                    (int)composite.step, QImage::Format_RGB888);
-        lblOutputImage->setPixmap(QPixmap::fromImage(qout.copy()));
-    }
-    catch (const cv::Exception &e)
+    MatchResult res = watcherMatch.result();
+    if (!res.valid || res.matches.empty())
     {
-        lblStatus->setText("Error: " + QString(e.what()));
-        lblOutputImage->setText("Error: " + QString(e.what()));
-    }
-    catch (...)
-    {
-        lblStatus->setText("Error: pipeline crashed.");
-        lblOutputImage->setText("Error: pipeline crashed.");
+        ui->lblStatus->setText(
+            "No matches found. Try lowering the contrast threshold or raising the ratio.");
+        return;
     }
 
-    btnRunPipeline->setText("Run Custom SIFT & Match");
-    btnRunPipeline->setEnabled(true);
-    btnLoadImage1->setEnabled(true);
-    btnLoadImage2->setEnabled(true);
+    // ── Build match lines in MainWindow widget coordinates ───────────────────
+    //
+    //  Both labels use scaledContents=true, so:
+    //    pixel (kp.x, kp.y) in image → widget pos (kp.x * w/W, kp.y * h/H)
+    //  where w/h = label widget size, W/H = image size.
+    //  Then mapTo(this, pos) converts to MainWindow space for paintEvent.
+
+    auto toWidget = [](const cv::Point2f &pt, const QLabel *lbl,
+                       int imgW, int imgH) -> QPointF
+    {
+        float sx = (float)lbl->width() / imgW;
+        float sy = (float)lbl->height() / imgH;
+        return QPointF(pt.x * sx, pt.y * sy);
+    };
+
+    matchLines.clear();
+    matchLines.reserve(res.matches.size());
+
+    for (const auto &m : res.matches)
+    {
+        // Start: keypoint in target (lblTemplate), in img2 space
+        QPointF wSrc = toWidget(res.kp2[m.queryIdx].pt,
+                                ui->lblTemplate, img2.cols, img2.rows);
+        // End:   keypoint in full scene (lblOutputImage), in img1 space
+        QPointF wDst = toWidget(kp1[m.trainIdx].pt,
+                                ui->lblOutputImage, img1.cols, img1.rows);
+
+        QPointF mainSrc = ui->lblTemplate->mapTo(this, wSrc.toPoint());
+        QPointF mainDst = ui->lblOutputImage->mapTo(this, wDst.toPoint());
+        matchLines.push_back({mainSrc, mainDst});
+    }
+
+    update(); // trigger paintEvent to draw arrows
+
+    ui->lblStatus->setText(
+        QString("Matched %1 inlier pair(s).  Ratio = %2  |  Contrast = %3")
+            .arg(res.matches.size())
+            .arg(currentRatioThresh, 0, 'f', 2)
+            .arg(currentContrastThresh, 0, 'f', 3));
+}
+
+// ── paintEvent — draw match arrows ───────────────────────────────────────────
+//
+//  Arrows run from the target template (left panel) → full scene (right panel).
+
+void MainWindow::paintEvent(QPaintEvent *event)
+{
+    QMainWindow::paintEvent(event);
+    if (matchLines.empty())
+        return;
+
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    // Slightly translucent green-yellow arrows
+    QPen linePen(QColor(50, 220, 120, 160), 1.2f, Qt::SolidLine, Qt::RoundCap);
+    p.setPen(linePen);
+
+    for (const auto &ln : matchLines)
+    {
+        // Arrow body
+        p.drawLine(ln.start, ln.end);
+
+        // Source dot (template side) — cyan
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0, 200, 255, 200));
+        p.drawEllipse(ln.start, 3, 3);
+
+        // Destination dot (scene side) — orange
+        p.setBrush(QColor(255, 140, 0, 200));
+        p.drawEllipse(ln.end, 3, 3);
+
+        p.setPen(linePen);
+    }
+}
+
+// ── ROI history controls ──────────────────────────────────────────────────────
+
+void MainWindow::onUndoRoi()
+{
+    ui->lblTemplate->undoRoi();
+    matchLines.clear();
+    update();
+}
+
+void MainWindow::onRedoRoi()
+{
+    ui->lblTemplate->redoRoi();
+    matchLines.clear();
+    update();
+}
+
+void MainWindow::onResetRoi()
+{
+    ui->lblTemplate->clearROI();
+    matchLines.clear();
+    update();
+    ui->btnRunMatch->setEnabled(false);
+}
+
+void MainWindow::onRoiHistoryChanged()
+{
+    ui->btnUndo->setEnabled(ui->lblTemplate->canUndo());
+    ui->btnRedo->setEnabled(ui->lblTemplate->canRedo());
 }
