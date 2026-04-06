@@ -10,7 +10,7 @@ void applyStructureTensor(Image& img) {
 	cv::Mat Iy2 = img.get("gradient_yy");
 	cv::Mat IxIy = img.get("gradient_xy");
 
-	const std::vector<float> kernel = { 1.f, 2.f, 4.f, 2.f, 1.f };
+	const std::vector<float> kernel = { 1.f / 16, 4.f / 16, 6.f / 16, 4.f / 16, 1.f / 16 };
 
 	cv::Mat Sxx = utils::convolveH<float>(utils::convolveV<float>(Ix2, kernel), kernel);
 	cv::Mat Syy = utils::convolveH<float>(utils::convolveV<float>(Iy2, kernel), kernel);
