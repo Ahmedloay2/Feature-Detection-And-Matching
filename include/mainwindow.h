@@ -22,6 +22,14 @@ namespace Ui
 }
 QT_END_NAMESPACE
 
+// ── Matching algorithm selector ───────────────────────────────────────────────
+
+enum class MatchAlgo
+{
+    SSD, // Sum of Squared Differences  — lower distance = better
+    NCC  // Normalized Cross-Correlation — higher similarity = better
+};
+
 // ── Data structures shared between matching thread and UI ─────────────────────
 
 struct MatchResult
@@ -39,10 +47,6 @@ struct MatchLine
 };
 
 // ── Transparent overlay — drawn on top of all child widgets ───────────────────
-//
-//  Lives as a child of MainWindow, always covers its full rect, and is always
-//  raised above siblings.  Mouse events pass straight through it so the labels
-//  underneath still receive clicks for ROI drawing.
 
 class MatchOverlay : public QWidget
 {
@@ -51,12 +55,11 @@ public:
     explicit MatchOverlay(QWidget *parent)
         : QWidget(parent)
     {
-        setAttribute(Qt::WA_TransparentForMouseEvents); // clicks reach labels below
-        setAttribute(Qt::WA_NoSystemBackground);        // skip default fill
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
         setStyleSheet("background: transparent;");
     }
 
-    // Pointer into MainWindow's matchLines vector — no copies needed
     const std::vector<MatchLine> *lines = nullptr;
 
 protected:
@@ -76,8 +79,8 @@ protected:
 
             p.setPen(Qt::NoPen);
             p.setBrush(ln.color);
-            p.drawEllipse(ln.start, 3, 3); // dot on template side
-            p.drawEllipse(ln.end, 3, 3);   // dot on scene side
+            p.drawEllipse(ln.start, 3, 3);
+            p.drawEllipse(ln.end, 3, 3);
         }
     }
 };
@@ -93,11 +96,9 @@ public:
     ~MainWindow();
 
 protected:
-    // Keep the overlay covering the full window whenever it resizes
     void resizeEvent(QResizeEvent *event) override;
 
 private slots:
-    // Buttons
     void onLoadFullScene();
     void onLoadTargetTemplate();
     void onExecuteMatch();
@@ -105,48 +106,43 @@ private slots:
     void onRedoRoi();
     void onResetRoi();
 
-    // Slider <-> spin sync
     void onSiftRatioSlider(int value);
     void onSiftRatioSpin(double value);
     void onSiftContrastSlider(int value);
     void onSiftContrastSpin(double value);
 
-    // Async callbacks
+    void onMatchAlgoChanged(int index); // combo box selection
+
     void onDebounceTimeout();
     void onImg1SiftDone();
     void onMatchDone();
 
-    // ROI history state -> enable/disable undo/redo buttons
     void onRoiHistoryChanged();
 
 private:
-    // ── Helpers ───────────────────────────────────────────────────────────────
     void downscaleIfNeeded(cv::Mat &img);
     void runSiftOnImg1Async();
     void displayImg1WithKeypoints();
-
-    // Returns ALL valid ROI rects in img2 pixel space
     std::vector<cv::Rect> getAllRoisInImg2Space() const;
 
     // ── UI ────────────────────────────────────────────────────────────────────
     Ui::MainWindow *ui;
-    MatchOverlay *m_overlay = nullptr; // transparent drawing surface on top
+    MatchOverlay *m_overlay = nullptr;
 
     // ── Images ────────────────────────────────────────────────────────────────
-    cv::Mat img1; // full scene
-    cv::Mat img2; // target template
+    cv::Mat img1;
+    cv::Mat img2;
 
-    // ── SIFT data for full scene (img1) ───────────────────────────────────────
+    // ── SIFT data ─────────────────────────────────────────────────────────────
     std::vector<cv::KeyPoint> kp1;
     cv::Mat desc1;
 
-    // Pending results while async extraction runs
     std::shared_ptr<std::vector<cv::KeyPoint>> pendingKp1;
     std::shared_ptr<cv::Mat> pendingDesc1;
 
     // ── Match visualisation ───────────────────────────────────────────────────
     std::vector<MatchLine> matchLines;
-    std::vector<QColor> pendingRoiColors; // one entry per drawn ROI box
+    std::vector<QColor> pendingRoiColors;
 
     // ── Async workers ─────────────────────────────────────────────────────────
     QFutureWatcher<void> watcherSift1;
@@ -156,7 +152,7 @@ private:
     // ── Parameters ────────────────────────────────────────────────────────────
     float currentRatioThresh = 0.75f;
     float currentContrastThresh = 0.007f;
+    MatchAlgo currentMatchAlgo = MatchAlgo::SSD;
 
-    // Debounce timer so slider drags don't spam SIFT re-extraction
     QTimer *debounceTimer = nullptr;
 };

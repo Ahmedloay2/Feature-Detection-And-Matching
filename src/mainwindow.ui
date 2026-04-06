@@ -16,7 +16,8 @@
      <widget class="QSplitter" name="mainSplitter">
       <property name="orientation"><enum>Qt::Horizontal</enum></property>
       <property name="handleWidth"><number>5</number></property>
-      <!-- ── Left control panel ────────────────────────────────────── -->
+
+      <!-- ── Left control panel ──────────────────────────────────────────── -->
       <widget class="QWidget" name="leftPanel" native="true">
        <property name="minimumSize"><size><width>220</width><height>0</height></size></property>
        <property name="maximumSize"><size><width>290</width><height>16777215</height></size></property>
@@ -27,6 +28,7 @@
         <property name="topMargin"><number>8</number></property>
         <property name="rightMargin"><number>8</number></property>
         <property name="bottomMargin"><number>8</number></property>
+
         <!-- Load buttons -->
         <item>
          <widget class="QPushButton" name="btnLoadFullScene">
@@ -40,6 +42,7 @@
           <property name="styleSheet"><string>QPushButton{background:#2a2a2a;color:white;border:1px solid #555;border-radius:4px;padding:8px;}QPushButton:hover{background:#333;}QPushButton:disabled{background:#37474F;color:#78909C;}</string></property>
          </widget>
         </item>
+
         <!-- SIFT Parameters -->
         <item>
          <widget class="QGroupBox" name="groupParams">
@@ -108,19 +111,50 @@
            <!-- hint labels -->
            <item row="2" column="0" colspan="2">
             <widget class="QLabel">
-             <property name="text"><string>Ratio: strict 0.50 ← → 0.95 lenient</string></property>
+             <property name="text"><string>Ratio: strict 0.50 &lt;-&gt; 0.95 lenient</string></property>
              <property name="styleSheet"><string>border:none;color:#546E7A;font-size:9px;</string></property>
             </widget>
            </item>
            <item row="3" column="0" colspan="2">
             <widget class="QLabel">
-             <property name="text"><string>Contrast: many KPs 0.001 ← → 0.030 few</string></property>
+             <property name="text"><string>Contrast: many KPs 0.001 &lt;-&gt; 0.030 few</string></property>
              <property name="styleSheet"><string>border:none;color:#546E7A;font-size:9px;</string></property>
             </widget>
            </item>
           </layout>
          </widget>
         </item>
+
+        <!-- Matching Algorithm -->
+        <item>
+         <widget class="QGroupBox" name="groupMatchAlgo">
+          <property name="title"><string>Matching Algorithm</string></property>
+          <property name="styleSheet"><string>QGroupBox{color:#FFCC80;font-weight:bold;border:1px solid #333;border-radius:4px;margin-top:8px;padding-top:6px;}QGroupBox::title{subcontrol-origin:margin;left:8px;}</string></property>
+          <layout class="QVBoxLayout">
+           <property name="spacing"><number>4</number></property>
+           <property name="leftMargin"><number>6</number></property>
+           <property name="topMargin"><number>4</number></property>
+           <property name="rightMargin"><number>6</number></property>
+           <property name="bottomMargin"><number>6</number></property>
+           <item>
+            <widget class="QComboBox" name="comboMatchAlgo">
+             <property name="styleSheet"><string>QComboBox{background:#2a2a2a;border:1px solid #555;border-radius:3px;color:#FFCC80;padding:4px 8px;font-size:11px;}QComboBox:hover{border:1px solid #FFCC80;}QComboBox::drop-down{border:none;}QComboBox QAbstractItemView{background:#2a2a2a;color:#ffffff;selection-background-color:#3a3a2a;}</string></property>
+             <item><property name="text"><string>SSD  —  Sum of Squared Differences</string></property></item>
+             <item><property name="text"><string>NCC  —  Normalized Cross-Correlation</string></property></item>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="lblAlgoHint">
+             <property name="text"><string>SSD: dist-based, lower = better match
+NCC: similarity-based, higher = better</string></property>
+             <property name="styleSheet"><string>border:none;color:#546E7A;font-size:9px;</string></property>
+             <property name="wordWrap"><bool>true</bool></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
         <!-- ROI Controls -->
         <item>
          <widget class="QGroupBox" name="groupROI">
@@ -155,6 +189,7 @@
           </layout>
          </widget>
         </item>
+
         <!-- Run button -->
         <item>
          <widget class="QPushButton" name="btnRunMatch">
@@ -163,26 +198,27 @@
           <property name="styleSheet"><string>QPushButton{background:#005f73;color:white;border:none;border-radius:4px;padding:12px;font-weight:bold;font-size:13px;}QPushButton:hover{background:#0a7080;}QPushButton:disabled{background:#37474F;color:#78909C;}</string></property>
          </widget>
         </item>
+
         <item>
          <spacer>
           <property name="orientation"><enum>Qt::Vertical</enum></property>
           <property name="sizeHint"><size><width>20</width><height>20</height></size></property>
          </spacer>
         </item>
+
        </layout>
       </widget>
-      <!-- ── Right image area (target LEFT, full scene RIGHT) ─────── -->
+
+      <!-- ── Right image area (target LEFT, full scene RIGHT) ───────────── -->
       <widget class="QSplitter" name="imageSplitter">
        <property name="orientation"><enum>Qt::Horizontal</enum></property>
        <property name="handleWidth"><number>5</number></property>
-       <!-- Target template: user draws ROI boxes here; arrows START here -->
        <widget class="InteractiveLabel" name="lblTemplate">
         <property name="text"><string>Load target template — then draw ROI boxes</string></property>
         <property name="alignment"><set>Qt::AlignCenter</set></property>
         <property name="scaledContents"><bool>true</bool></property>
         <property name="styleSheet"><string>background:#1a1a2e;border:1px solid #333;border-radius:4px;</string></property>
        </widget>
-       <!-- Full scene: SIFT circles shown here; match arrows END here -->
        <widget class="QLabel" name="lblOutputImage">
         <property name="text"><string>Load full scene — SIFT features will appear automatically</string></property>
         <property name="alignment"><set>Qt::AlignCenter</set></property>
@@ -190,8 +226,10 @@
         <property name="styleSheet"><string>background:#1a1a2e;border:1px solid #333;border-radius:4px;</string></property>
        </widget>
       </widget>
+
      </widget>
     </item>
+
     <!-- Status bar -->
     <item>
      <widget class="QLabel" name="lblStatus">
@@ -199,6 +237,7 @@
       <property name="styleSheet"><string>color:#81C784;font-size:12px;padding:3px 4px;</string></property>
      </widget>
     </item>
+
    </layout>
   </widget>
  </widget>

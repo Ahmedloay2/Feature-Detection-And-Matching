@@ -3,9 +3,8 @@
 #include "SiftCore.hpp"
 #include "io/image_handler.hpp"
 
-// OpenCV — each header covers exactly the functions used below
 #include <opencv2/imgcodecs.hpp>  // cv::imread
-#include <opencv2/imgproc.hpp>    // cv::cvtColor, cv::resize, cv::COLOR_BGR2RGB
+#include <opencv2/imgproc.hpp>    // cv::cvtColor, cv::resize
 #include <opencv2/features2d.hpp> // cv::drawKeypoints, cv::DrawMatchesFlags
 #include <opencv2/calib3d.hpp>    // cv::findHomography, cv::RANSAC
 
@@ -14,6 +13,7 @@
 #include <QResizeEvent>
 #include <omp.h>
 #include <mutex>
+#include <cmath>
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
@@ -22,26 +22,25 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
-    // ── Transparent overlay — must be created AFTER setupUi so it is raised
-    //    above all child widgets that setupUi created.
+    // Transparent overlay — created AFTER setupUi so it raises above children
     m_overlay = new MatchOverlay(this);
     m_overlay->lines = &matchLines;
-    m_overlay->setGeometry(rect()); // cover the full window
-    m_overlay->raise();             // sit on top of every other child
+    m_overlay->setGeometry(rect());
+    m_overlay->raise();
 
-    // ── Debounce timer (fires 500 ms after last slider move) ─────────────────
+    // Debounce timer
     debounceTimer = new QTimer(this);
     debounceTimer->setSingleShot(true);
     debounceTimer->setInterval(500);
     connect(debounceTimer, &QTimer::timeout, this, &MainWindow::onDebounceTimeout);
 
-    // ── Async watchers ────────────────────────────────────────────────────────
+    // Async watchers
     connect(&watcherSift1, &QFutureWatcher<void>::finished,
             this, &MainWindow::onImg1SiftDone);
     connect(&watcherMatch, &QFutureWatcher<MatchResult>::finished,
             this, &MainWindow::onMatchDone);
 
-    // ── Button connections ────────────────────────────────────────────────────
+    // Buttons
     connect(ui->btnLoadFullScene, &QPushButton::clicked, this, &MainWindow::onLoadFullScene);
     connect(ui->btnLoadTargetTemplate, &QPushButton::clicked, this, &MainWindow::onLoadTargetTemplate);
     connect(ui->btnRunMatch, &QPushButton::clicked, this, &MainWindow::onExecuteMatch);
@@ -49,7 +48,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->btnRedo, &QPushButton::clicked, this, &MainWindow::onRedoRoi);
     connect(ui->btnReset, &QPushButton::clicked, this, &MainWindow::onResetRoi);
 
-    // ── Slider <-> spin sync ──────────────────────────────────────────────────
+    // Sliders <-> spins
     connect(ui->sliderRatio, &QSlider::valueChanged,
             this, &MainWindow::onSiftRatioSlider);
     connect(ui->spinRatio, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -59,7 +58,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->spinContrast, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &MainWindow::onSiftContrastSpin);
 
-    // ── ROI label signals ─────────────────────────────────────────────────────
+    // Algorithm combo box
+    connect(ui->comboMatchAlgo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onMatchAlgoChanged);
+
+    // ROI signals
     connect(ui->lblTemplate, &InteractiveLabel::roiSelected,
             this, [this]()
             {
@@ -75,7 +78,7 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow() { delete ui; }
 
-// ── Keep overlay covering the full window on resize ───────────────────────────
+// ── Resize — keep overlay covering the full window ────────────────────────────
 
 void MainWindow::resizeEvent(QResizeEvent *event)
 {
@@ -83,8 +86,18 @@ void MainWindow::resizeEvent(QResizeEvent *event)
     if (m_overlay)
     {
         m_overlay->setGeometry(rect());
-        m_overlay->raise(); // stay on top after any layout change
+        m_overlay->raise();
     }
+}
+
+// ── Algorithm combo ───────────────────────────────────────────────────────────
+
+void MainWindow::onMatchAlgoChanged(int index)
+{
+    currentMatchAlgo = (index == 1) ? MatchAlgo::NCC : MatchAlgo::SSD;
+    // Clear stale lines — user must re-run to see new algorithm's results
+    matchLines.clear();
+    m_overlay->update();
 }
 
 // ── Parameter sync ────────────────────────────────────────────────────────────
@@ -137,7 +150,7 @@ void MainWindow::onSiftContrastSpin(double value)
     }
 }
 
-// ── Debounce -> re-run SIFT on img1 ──────────────────────────────────────────
+// ── Debounce ──────────────────────────────────────────────────────────────────
 
 void MainWindow::onDebounceTimeout()
 {
@@ -187,7 +200,6 @@ void MainWindow::onLoadFullScene()
 
     matchLines.clear();
     m_overlay->update();
-
     runSiftOnImg1Async();
 }
 
@@ -227,7 +239,7 @@ void MainWindow::onLoadTargetTemplate()
         !img1.empty() && !ui->lblTemplate->getSelectedROIs().empty());
 }
 
-// ── Async SIFT extraction on img1 ─────────────────────────────────────────────
+// ── Async SIFT on img1 ────────────────────────────────────────────────────────
 
 void MainWindow::runSiftOnImg1Async()
 {
@@ -236,7 +248,6 @@ void MainWindow::runSiftOnImg1Async()
         sift1RerunPending = true;
         return;
     }
-
     sift1RerunPending = false;
 
     float ct = currentContrastThresh;
@@ -250,9 +261,7 @@ void MainWindow::runSiftOnImg1Async()
 
     watcherSift1.setFuture(QtConcurrent::run(
         [imgCopy, ct, kpRef, descRef]()
-        {
-            cv_assign::SiftProcessor::extractFeatures(imgCopy, *kpRef, *descRef, ct);
-        }));
+        { cv_assign::SiftProcessor::extractFeatures(imgCopy, *kpRef, *descRef, ct); }));
 }
 
 void MainWindow::onImg1SiftDone()
@@ -265,7 +274,6 @@ void MainWindow::onImg1SiftDone()
 
     kp1 = *pendingKp1;
     desc1 = *pendingDesc1;
-
     displayImg1WithKeypoints();
 
     ui->lblStatus->setText(
@@ -297,7 +305,6 @@ std::vector<cv::Rect> MainWindow::getAllRoisInImg2Space() const
     auto qrois = ui->lblTemplate->getSelectedROIs();
     std::vector<cv::Rect> result;
     result.reserve(qrois.size());
-
     for (const auto &r : qrois)
     {
         int x = std::max(0, r.x());
@@ -311,6 +318,25 @@ std::vector<cv::Rect> MainWindow::getAllRoisInImg2Space() const
 }
 
 // ── Matching ──────────────────────────────────────────────────────────────────
+//
+//  NCC for SIFT descriptors
+//  ─────────────────────────
+//  SiftCore already L2-normalizes every descriptor twice (with 0.2 cap).
+//  For two unit vectors a and b:
+//
+//      NCC(a, b) = dot(a, b) / (|a| * |b|) = dot(a, b)
+//
+//  dot(a,b) ∈ [-1, 1].  A value close to +1 means high similarity.
+//
+//  To re-use the same Lowe ratio logic (lower = better) we convert to a
+//  distance:
+//
+//      dist_NCC = 1 - dot(a, b)        range [0, 2]
+//
+//  Then the ratio test is identical to SSD:
+//      dist_best < ratio * dist_second
+//
+//  This keeps the Lowe ratio slider meaningful for both algorithms.
 
 void MainWindow::onExecuteMatch()
 {
@@ -334,22 +360,25 @@ void MainWindow::onExecuteMatch()
     ui->btnRunMatch->setEnabled(false);
     ui->btnLoadFullScene->setEnabled(false);
     ui->btnLoadTargetTemplate->setEnabled(false);
+
+    QString algoName = (currentMatchAlgo == MatchAlgo::NCC) ? "NCC" : "SSD";
     ui->lblStatus->setText(
-        QString("Running SIFT matching on %1 ROI box(es)...").arg(allRois.size()));
+        QString("Running %1 matching on %2 ROI box(es)...")
+            .arg(algoName)
+            .arg(allRois.size()));
 
     matchLines.clear();
     m_overlay->update();
 
-    // ── Assign one distinct color per ROI box ─────────────────────────────────
+    // Per-ROI color palette
     static const std::vector<QColor> palette = {
-        QColor(255, 80, 80, 200),   // 0 - red
-        QColor(80, 200, 255, 200),  // 1 - cyan
-        QColor(100, 255, 100, 200), // 2 - green
-        QColor(255, 210, 50, 200),  // 3 - yellow
-        QColor(200, 100, 255, 200), // 4 - purple
-        QColor(255, 140, 0, 200),   // 5 - orange
+        QColor(255, 80, 80, 200),
+        QColor(80, 200, 255, 200),
+        QColor(100, 255, 100, 200),
+        QColor(255, 210, 50, 200),
+        QColor(200, 100, 255, 200),
+        QColor(255, 140, 0, 200),
     };
-
     pendingRoiColors.clear();
     for (size_t i = 0; i < allRois.size(); ++i)
         pendingRoiColors.push_back(palette[i % palette.size()]);
@@ -360,13 +389,13 @@ void MainWindow::onExecuteMatch()
     cv::Mat img2copy = img2.clone();
     float ratio = currentRatioThresh;
     float ct = currentContrastThresh;
+    MatchAlgo algo = currentMatchAlgo;
 
     watcherMatch.setFuture(QtConcurrent::run(
-        [allRois, img2copy, d1copy, kp1copy, ratio, ct]() -> MatchResult
+        [allRois, img2copy, d1copy, kp1copy, ratio, ct, algo]() -> MatchResult
         {
             MatchResult combined;
             combined.valid = true;
-
             int kp2Offset = 0;
 
             for (int roiIdx = 0; roiIdx < (int)allRois.size(); ++roiIdx)
@@ -374,7 +403,7 @@ void MainWindow::onExecuteMatch()
                 const cv::Rect &roi = allRois[roiIdx];
                 cv::Mat roiImg = img2copy(roi).clone();
 
-                // Extract SIFT on this ROI sub-image
+                // ── Extract SIFT features on this ROI ────────────────────────
                 std::vector<cv::KeyPoint> kp2roi;
                 cv::Mat desc2;
                 cv_assign::SiftProcessor::extractFeatures(roiImg, kp2roi, desc2, ct);
@@ -385,7 +414,7 @@ void MainWindow::onExecuteMatch()
                     continue;
                 }
 
-                // Shift keypoints from sub-image space -> full img2 space
+                // Shift keypoints into full img2 space
                 for (auto &kp : kp2roi)
                 {
                     kp.pt.x += roi.x;
@@ -393,7 +422,6 @@ void MainWindow::onExecuteMatch()
                     combined.kp2.push_back(kp);
                 }
 
-                // Custom SSD matching with Lowe ratio test
                 const int N = desc2.rows;
                 const int M = d1copy.rows;
 
@@ -401,54 +429,121 @@ void MainWindow::onExecuteMatch()
                 raw.reserve(N);
                 std::mutex mtx;
 
-#pragma omp parallel for schedule(dynamic, 32)
-                for (int i = 0; i < N; ++i)
+                if (algo == MatchAlgo::SSD)
                 {
-                    const float *q = desc2.ptr<float>(i);
-                    float best = 1e30f, second = 1e30f;
-                    int bestIdx = -1, secondIdx = -1;
+                // ── SSD matching ─────────────────────────────────────────
+                // dist = sqrt( sum_i (a_i - b_i)^2 )
+                // Lower distance = better match.
+                // Lowe ratio test: dist_best < ratio * dist_second
 
-                    for (int j = 0; j < M; ++j)
+#pragma omp parallel for schedule(dynamic, 32)
+                    for (int i = 0; i < N; ++i)
                     {
-                        const float *t = d1copy.ptr<float>(j);
-                        float ssd = 0.f;
+                        const float *q = desc2.ptr<float>(i);
+                        float best = 1e30f, second = 1e30f;
+                        int bestIdx = -1, secondIdx = -1;
 
-                        for (int d = 0; d < 128; d += 8)
+                        for (int j = 0; j < M; ++j)
                         {
-                            float d0 = q[d + 0] - t[d + 0], d1a = q[d + 1] - t[d + 1],
-                                  d2 = q[d + 2] - t[d + 2], d3 = q[d + 3] - t[d + 3],
-                                  d4 = q[d + 4] - t[d + 4], d5 = q[d + 5] - t[d + 5],
-                                  d6 = q[d + 6] - t[d + 6], d7 = q[d + 7] - t[d + 7];
-                            ssd += d0 * d0 + d1a * d1a + d2 * d2 + d3 * d3 + d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7;
+                            const float *t = d1copy.ptr<float>(j);
+                            float ssd = 0.f;
+
+                            for (int d = 0; d < 128; d += 8)
+                            {
+                                float d0 = q[d + 0] - t[d + 0], d1a = q[d + 1] - t[d + 1],
+                                      d2 = q[d + 2] - t[d + 2], d3 = q[d + 3] - t[d + 3],
+                                      d4 = q[d + 4] - t[d + 4], d5 = q[d + 5] - t[d + 5],
+                                      d6 = q[d + 6] - t[d + 6], d7 = q[d + 7] - t[d + 7];
+                                ssd += d0 * d0 + d1a * d1a + d2 * d2 + d3 * d3 + d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7;
+                            }
+
+                            if (ssd < best)
+                            {
+                                second = best;
+                                secondIdx = bestIdx;
+                                best = ssd;
+                                bestIdx = j;
+                            }
+                            else if (ssd < second)
+                            {
+                                second = ssd;
+                                secondIdx = j;
+                            }
                         }
 
-                        if (ssd < best)
+                        if (bestIdx >= 0 && secondIdx >= 0 &&
+                            std::sqrt(best) < ratio * std::sqrt(second))
                         {
-                            second = best;
-                            secondIdx = bestIdx;
-                            best = ssd;
-                            bestIdx = j;
-                        }
-                        else if (ssd < second)
-                        {
-                            second = ssd;
-                            secondIdx = j;
+                            cv::DMatch dm(kp2Offset + i, bestIdx, std::sqrt(best));
+                            dm.imgIdx = roiIdx;
+                            std::lock_guard<std::mutex> lk(mtx);
+                            raw.push_back(dm);
                         }
                     }
+                }
+                else // MatchAlgo::NCC
+                {
+                // ── NCC matching ─────────────────────────────────────────
+                //
+                // SIFT descriptors are L2-normalized (|a|=|b|=1) so:
+                //   NCC(a,b) = dot(a,b)   in [-1, 1]
+                //
+                // Convert to a distance so Lowe's ratio test applies
+                // exactly the same way as SSD:
+                //   dist_NCC = 1 - dot(a,b)   in [0, 2]
+                //
+                // A perfect match gives dist_NCC = 0 (dot = 1).
+                // An orthogonal descriptor gives dist_NCC = 1 (dot = 0).
+                // An opposite descriptor gives dist_NCC = 2 (dot = -1).
 
-                    if (bestIdx >= 0 && secondIdx >= 0 &&
-                        std::sqrt(best) < ratio * std::sqrt(second))
+#pragma omp parallel for schedule(dynamic, 32)
+                    for (int i = 0; i < N; ++i)
                     {
-                        // queryIdx: global index into combined.kp2
-                        // imgIdx:   reused as ROI index tag for color lookup
-                        cv::DMatch dm(kp2Offset + i, bestIdx, std::sqrt(best));
-                        dm.imgIdx = roiIdx;
-                        std::lock_guard<std::mutex> lk(mtx);
-                        raw.push_back(dm);
+                        const float *q = desc2.ptr<float>(i);
+                        float best = 1e30f, second = 1e30f; // distances
+                        int bestIdx = -1, secondIdx = -1;
+
+                        for (int j = 0; j < M; ++j)
+                        {
+                            const float *t = d1copy.ptr<float>(j);
+
+                            // Compute dot product (128-dim, unrolled by 8)
+                            float dot = 0.f;
+                            for (int d = 0; d < 128; d += 8)
+                            {
+                                dot += q[d + 0] * t[d + 0] + q[d + 1] * t[d + 1] + q[d + 2] * t[d + 2] + q[d + 3] * t[d + 3] + q[d + 4] * t[d + 4] + q[d + 5] * t[d + 5] + q[d + 6] * t[d + 6] + q[d + 7] * t[d + 7];
+                            }
+
+                            // Convert similarity to distance
+                            float dist = 1.0f - dot; // in [0, 2]
+
+                            if (dist < best)
+                            {
+                                second = best;
+                                secondIdx = bestIdx;
+                                best = dist;
+                                bestIdx = j;
+                            }
+                            else if (dist < second)
+                            {
+                                second = dist;
+                                secondIdx = j;
+                            }
+                        }
+
+                        // Lowe ratio test: identical form to SSD
+                        if (bestIdx >= 0 && secondIdx >= 0 &&
+                            best < ratio * second)
+                        {
+                            cv::DMatch dm(kp2Offset + i, bestIdx, best);
+                            dm.imgIdx = roiIdx;
+                            std::lock_guard<std::mutex> lk(mtx);
+                            raw.push_back(dm);
+                        }
                     }
                 }
 
-                // RANSAC homography filtering per ROI
+                // ── RANSAC homography filtering (same for both algos) ─────────
                 if ((int)raw.size() >= 4)
                 {
                     std::vector<cv::Point2f> src, dst;
@@ -467,7 +562,6 @@ void MainWindow::onExecuteMatch()
                 }
                 else
                 {
-                    // Too few for RANSAC — keep all raw matches
                     for (const auto &m : raw)
                         combined.matches.push_back(m);
                 }
@@ -479,7 +573,7 @@ void MainWindow::onExecuteMatch()
         }));
 }
 
-// ── Match done -> build match lines in overlay coordinates ────────────────────
+// ── Match done -> build match lines ──────────────────────────────────────────
 
 void MainWindow::onMatchDone()
 {
@@ -494,15 +588,6 @@ void MainWindow::onMatchDone()
             "No matches found. Try lowering the contrast threshold or raising the ratio.");
         return;
     }
-
-    // ── Convert image-space keypoints -> overlay widget coordinates ───────────
-    //
-    //  The overlay covers the full MainWindow rect (0,0,w,h).
-    //  mapTo(this, pt) converts a label-local point to MainWindow coords,
-    //  which are identical to overlay coords since the overlay starts at (0,0).
-    //
-    //  Both labels use scaledContents=true so:
-    //    image pixel (kp.x, kp.y) -> label local (kp.x * lblW/imgW, kp.y * lblH/imgH)
 
     auto toLabel = [](const cv::Point2f &pt, const QLabel *lbl,
                       int imgW, int imgH) -> QPoint
@@ -522,7 +607,6 @@ void MainWindow::onMatchDone()
         QPoint lblDst = toLabel(kp1[m.trainIdx].pt,
                                 ui->lblOutputImage, img1.cols, img1.rows);
 
-        // mapTo(this) converts label-local -> MainWindow == overlay coords
         QPointF overlaySrc = ui->lblTemplate->mapTo(this, lblSrc);
         QPointF overlayDst = ui->lblOutputImage->mapTo(this, lblDst);
 
@@ -534,10 +618,11 @@ void MainWindow::onMatchDone()
         matchLines.push_back({overlaySrc, overlayDst, col});
     }
 
-    m_overlay->raise();  // ensure nothing has been stacked above it since
-    m_overlay->update(); // trigger MatchOverlay::paintEvent
+    m_overlay->raise();
+    m_overlay->update();
 
-    // Status bar with per-ROI breakdown
+    // Status bar with algo name + per-ROI breakdown
+    QString algoName = (currentMatchAlgo == MatchAlgo::NCC) ? "NCC" : "SSD";
     int numRois = (int)pendingRoiColors.size();
     QString roiDetail;
     for (int r = 0; r < numRois; ++r)
@@ -551,8 +636,9 @@ void MainWindow::onMatchDone()
     }
 
     ui->lblStatus->setText(
-        QString("Matched %1 inlier pair(s).  Ratio = %2  |  Contrast = %3%4")
+        QString("Matched %1 inlier pair(s).  [%2]  Ratio = %3  |  Contrast = %4%5")
             .arg(res.matches.size())
+            .arg(algoName)
             .arg(currentRatioThresh, 0, 'f', 2)
             .arg(currentContrastThresh, 0, 'f', 3)
             .arg(roiDetail));
