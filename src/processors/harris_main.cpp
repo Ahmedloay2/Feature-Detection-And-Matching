@@ -22,15 +22,21 @@ std::vector<cv::Point> applyHarris(Image& image, float k,
         };
 
     auto t0 = Clock::now();
-    toGrayscale(image);
+    if (!image.has("grayscale")) {
+        toGrayscale(image);
+    }
     std::cout << "  grayscale:        " << t(t0) << " ms\n";
 
     t0 = Clock::now();
-    computeGradient(image);
+    if (!image.has("gradient_xx")) {
+        computeGradient(image);
+    }
     std::cout << "  gradient:         " << t(t0) << " ms\n";
 
     t0 = Clock::now();
-    applyStructureTensor(image);
+    if (!image.has("structure_xx")) {
+        applyStructureTensor(image);
+    }
     std::cout << "  structure tensor: " << t(t0) << " ms\n";
 
     t0 = Clock::now();

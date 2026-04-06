@@ -2,138 +2,83 @@
  * @file utils.hpp
  * @brief Utility functions for image processing operations.
  *
+ * Architecture
+ * ────────────
+ * Template bodies live in utils_impl.hpp (included at the bottom of
+ * this file).  Non-template definitions live in utils.cpp.
+ *
+ * Explicit instantiations for <float> and <double> are provided in
+ * utils.cpp so the linker can find them without re-instantiating in
+ * every translation unit.  If you need a third type, add an explicit
+ * instantiation there.
+ *
  * Performance notes
  * ─────────────────
- * Convolution is implemented using border-padding:
+ * Convolution uses border-padding + cv::parallel_for_:
+ *
  *   1. Pad the source image with reflected borders (copyMakeBorder).
- *   2. Run the convolution inner loop with NO boundary checks.
+ *   2. Split the row range across threads with cv::parallel_for_.
+ *   3. Run the inner kernel loop with NO boundary checks.
  *
- * This eliminates:
- *   - reflectIndex() call per kernel element per pixel (~12M calls saved)
- *   - Indirect/non-sequential memory access pattern
- *   - Conditional branches that block compiler auto-vectorization
+ * This gives us:
+ *   - Zero branch overhead per pixel (padding guarantees safe access)
+ *   - Compiler-visible straight multiply-accumulate → SIMD (SSE/AVX)
+ *     via -O3 -march=native
+ *   - Multi-core parallelism via OpenCV's built-in thread pool
+ *     (backed by TBB or OpenMP depending on your OpenCV build)
  *
- * The inner loop becomes a straight multiply-accumulate over contiguous
- * memory — the compiler can emit SIMD (SSE/AVX) instructions for it.
+ * convolveV additionally transposes the input so the vertical pass
+ * becomes a horizontal pass over contiguous memory rows — eliminating
+ * the strided column-access pattern that defeats the CPU cache.
  */
 
 #pragma once
 #include <opencv2/core.hpp>
-#include <opencv2/imgproc.hpp>   // cv::copyMakeBorder
+#include <opencv2/imgproc.hpp>
 #include <vector>
 
 namespace utils {
 
     /**
-     * @brief Map out-of-bounds indices using reflection.
-     * Still available for use outside convolution if needed.
+     * @brief Map an out-of-bounds index into [0, size-1] by reflection.
+     *
+     * Still available for callers that need it outside convolution.
+     *
+     * @param x    Index to map (may be negative or >= size)
+     * @param size Valid range is [0, size-1]
+     * @return     Reflected index in [0, size-1]
      */
     int reflectIndex(int x, int size);
 
     /**
-     * @brief Perform 1D horizontal convolution on each row.
+     * @brief 1-D horizontal convolution, parallelised across rows.
      *
-     * Pads the image horizontally with reflected borders equal to half
-     * the kernel size, then runs a clean inner loop with no boundary checks.
-     *
-     * @tparam T  float or double
-     * @param src    Input CV_32FC1 (or CV_64FC1) matrix
-     * @param kernel 1D kernel, odd length
-     * @return Output same size and type as src
+     * @tparam T   float or double  (explicit instantiations in utils.cpp)
+     * @param src    Input CV_32FC1 / CV_64FC1 matrix
+     * @param kernel 1-D kernel (odd length recommended)
+     * @return       Output matrix, same size and type as src
      */
     template<typename T>
-    cv::Mat convolveH(const cv::Mat& src, const std::vector<T>& kernel)
-    {
-        const int rows = src.rows;
-        const int cols = src.cols;
-        const int half = static_cast<int>(kernel.size()) / 2;
-        const int klen = static_cast<int>(kernel.size());
-
-        // ── Pad left and right with reflected border ──────────────────────────
-        // BORDER_REFLECT_101: reflects without duplicating the edge pixel
-        // e.g. padding of 1: [a b c d] → [b | a b c d | c]
-        cv::Mat padded;
-        cv::copyMakeBorder(src, padded,
-            0, 0,          // top, bottom — no vertical padding here
-            half, half,    // left, right padding
-            cv::BORDER_REFLECT_101);
-
-        cv::Mat dst(rows, cols, src.type());
-
-        for (int i = 0; i < rows; ++i)
-        {
-            // padded row starts at column 0; src pixel j maps to padded column j+half
-            const T* paddedRow = padded.ptr<T>(i);
-            T* dstRow = dst.ptr<T>(i);
-
-            for (int j = 0; j < cols; ++j)
-            {
-                T val = static_cast<T>(0);
-
-                // paddedRow + j is the start of the kernel window for pixel j
-                // No boundary check needed — padding guarantees valid access
-                const T* window = paddedRow + j;   // window[0..klen-1] all valid
-
-                for (int n = 0; n < klen; ++n)
-                    val += window[n] * kernel[n];
-
-                dstRow[j] = val;
-            }
-        }
-        return dst;
-    }
+    cv::Mat convolveH(const cv::Mat& src, const std::vector<T>& kernel);
 
     /**
-     * @brief Perform 1D vertical convolution on each column.
+     * @brief 1-D vertical convolution, parallelised across rows.
      *
-     * Pads the image vertically with reflected borders, then runs a
-     * clean inner loop using row pointers — no boundary checks.
+     * Internally transposes → convolveH → transposes back so that both
+     * passes benefit from cache-friendly sequential memory access.
      *
-     * @tparam T  float or double
-     * @param src    Input CV_32FC1 (or CV_64FC1) matrix
-     * @param kernel 1D kernel, odd length
-     * @return Output same size and type as src
+     * @tparam T   float or double  (explicit instantiations in utils.cpp)
+     * @param src    Input CV_32FC1 / CV_64FC1 matrix
+     * @param kernel 1-D kernel (odd length recommended)
+     * @return       Output matrix, same size and type as src
      */
     template<typename T>
-    cv::Mat convolveV(const cv::Mat& src, const std::vector<T>& kernel)
-    {
-        const int rows = src.rows;
-        const int cols = src.cols;
-        const int half = static_cast<int>(kernel.size()) / 2;
-        const int klen = static_cast<int>(kernel.size());
-
-        // ── Pad top and bottom with reflected border ──────────────────────────
-        cv::Mat padded;
-        cv::copyMakeBorder(src, padded,
-            half, half,    // top, bottom padding
-            0, 0,          // left, right — no horizontal padding
-            cv::BORDER_REFLECT_101);
-
-        cv::Mat dst(rows, cols, src.type());
-
-        // Pre-cache all row pointers into an array for fast access in inner loop
-        // Avoids repeated ptr<T>(row) virtual dispatch overhead
-        std::vector<const T*> rowPtrs(rows + 2 * half);
-        for (int i = 0; i < rows + 2 * half; ++i)
-            rowPtrs[i] = padded.ptr<T>(i);
-
-        for (int i = 0; i < rows; ++i)
-        {
-            T* dstRow = dst.ptr<T>(i);
-
-            for (int j = 0; j < cols; ++j)
-            {
-                T val = static_cast<T>(0);
-
-                // rowPtrs[i] corresponds to padded row i (which is src row i-half).
-                // The kernel window for src pixel (i,j) spans padded rows i..i+klen-1.
-                for (int m = 0; m < klen; ++m)
-                    val += rowPtrs[i + m][j] * kernel[m];
-
-                dstRow[j] = val;
-            }
-        }
-        return dst;
-    }
+    cv::Mat convolveV(const cv::Mat& src, const std::vector<T>& kernel);
 
 } // namespace utils
+
+// Template bodies — included here so that every TU that includes
+// utils.hpp can still instantiate the templates if needed, while the
+// explicit instantiations in utils.cpp avoid duplicate code-gen for
+// the common float/double cases.
+#include "utils/utils_impl.hpp"

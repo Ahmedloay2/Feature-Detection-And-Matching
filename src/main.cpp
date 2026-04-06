@@ -366,7 +366,7 @@ int main(int argc, char* argv[])
     cv::Mat gray8U, grayF32;
     cv::cvtColor(src, gray8U, cv::COLOR_BGR2GRAY);
     gray8U.convertTo(grayF32, CV_32F);
-
+    cv::setNumThreads(cv::getNumberOfCPUs());
     // ── Detector 1: Your Harris ───────────────────────────────────────────────
     Image img1 = loadImage(IMAGE_PATH);
     std::string modeHarris = "harris";
@@ -375,11 +375,9 @@ int main(int argc, char* argv[])
         THRESHOLD, HALF_WINDOW);
     double t_harris = elapsedMs(h0, Clock::now());
 
-    // ── Detector 2: Your Shi-Tomasi ───────────────────────────────────────────
-    Image img2 = loadImage(IMAGE_PATH);
     std::string modeShi = "shi_tomasi";
     auto s0 = Clock::now();
-    auto shiCorners = applyHarris(img2, 0.f, modeShi,
+    auto shiCorners = applyHarris(img1, 0.f, modeShi,
         THRESHOLD, HALF_WINDOW);
     double t_shi = elapsedMs(s0, Clock::now());
 
