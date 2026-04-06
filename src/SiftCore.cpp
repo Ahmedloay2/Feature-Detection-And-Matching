@@ -179,6 +179,16 @@ namespace cv_assign
         }
     }
 
+    static void l2NormalizeVector(float* desc, int size) {
+        float norm = 0.0f;
+        for (int i = 0; i < size; i++)
+            norm += desc[i] * desc[i];
+        norm = std::sqrt(norm);
+        if (norm > 1e-6f)
+            for (int i = 0; i < size; i++)
+                desc[i] /= norm;
+    }
+
     void SiftProcessor::computeDescriptors(const std::vector<std::vector<cv::Mat>> &gaussPyramid,
                                            std::vector<cv::KeyPoint> &keypoints,
                                            cv::Mat &descriptors)
@@ -252,23 +262,15 @@ namespace cv_assign
                     }
                 }
             }
-            float norm = 0.0f;
-            for (int i = 0; i < 128; i++)
-                norm += desc_ptr[i] * desc_ptr[i];
-            norm = std::sqrt(norm);
-            if (norm > 1e-6f)
-                for (int i = 0; i < 128; i++)
-                    desc_ptr[i] /= norm;
-            norm = 0.0f;
+            
+            l2NormalizeVector(desc_ptr, 128);
+
             for (int i = 0; i < 128; i++)
             {
                 desc_ptr[i] = std::min(desc_ptr[i], 0.2f);
-                norm += desc_ptr[i] * desc_ptr[i];
             }
-            norm = std::sqrt(norm);
-            if (norm > 1e-6f)
-                for (int i = 0; i < 128; i++)
-                    desc_ptr[i] /= norm;
+            
+            l2NormalizeVector(desc_ptr, 128);
         }
     }
 } // namespace cv_assign

@@ -7,6 +7,8 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <QGroupBox>
+#include <mutex>
+#include <opencv2/calib3d.hpp>
 
 // ── Palette colours matching each ROI index ───────────────────────────────────
 static const std::vector<cv::Scalar> ROI_COLORS = {
@@ -406,10 +408,8 @@ void MainWindow::onSiftExtractionFinished()
         if (desc1.empty() || kp1.empty() || desc1.type() != CV_32F || desc1.rows < 2)
             throw cv::Exception(cv::Error::StsError, "Image 1 descriptors empty.", "", __FILE__, __LINE__);
 
-        // ── Build the annotated Image-1 result ────────────────────────────────
-        cv::Mat resultImg = img1.clone(); // Panel 3 = Image 1 only
-
-        cv::BFMatcher matcher(cv::NORM_L2);
+        // ── Visual Setup: Cross-Panel Composite Image ────────────────────────
+        cv::Mat final_composite;
         int totalMatches = 0;
 
         for (size_t idx = 0; idx < roiRects.size(); ++idx)
@@ -420,49 +420,142 @@ void MainWindow::onSiftExtractionFinished()
             cv::Scalar color = ROI_COLORS[idx % ROI_COLORS.size()];
 
             if (roi_desc.empty() || roi_kp.empty() ||
-                roi_desc.type() != CV_32F || roi_desc.rows < 2)
+                roi_desc.type() != CV_32F || roi_desc.rows < 2 || desc1.rows < 2)
                 continue;
 
-            // kNN match: ROI descriptors (query) vs Image-1 descriptors (train)
-            std::vector<std::vector<cv::DMatch>> knn_matches;
-            matcher.knnMatch(roi_desc, desc1, knn_matches, 2);
-
+            // 1. Custom SSD matching with thread-safe vector
             std::vector<cv::DMatch> good_matches;
-            for (auto &m : knn_matches)
-                if (m.size() > 1 && m[0].distance < ratioThresh * m[1].distance)
-                    good_matches.push_back(m[0]);
 
-            totalMatches += (int)good_matches.size();
-
-            // ── Draw on Image 1 (Panel 3) ─────────────────────────────────────
-            // Filled circle at each matched keypoint location in Image 1
-            // Size of circle reflects the keypoint scale for visual clarity
-            for (const auto &match : good_matches)
+#pragma omp parallel for
+            for (int i = 0; i < roi_desc.rows; ++i)
             {
-                cv::Point2f pt = kp1[match.trainIdx].pt;
-                float r = std::max(4.0f, kp1[match.trainIdx].size / 4.0f);
-                cv::circle(resultImg, pt, (int)r, color, 2, cv::LINE_AA);
-                cv::circle(resultImg, pt, 2, color, -1, cv::LINE_AA); // centre dot
+                const float *q_ptr = roi_desc.ptr<float>(i);
+                float bestDistSq = 1e30f, secondBestDistSq = 1e30f;
+                int bestIdx = -1, secondBestIdx = -1;
+
+                for (int j = 0; j < desc1.rows; ++j)
+                {
+                    const float *t_ptr = desc1.ptr<float>(j);
+                    float ssd = 0.0f;
+                    for (int d = 0; d < 128; d++)
+                    {
+                        float diff = q_ptr[d] - t_ptr[d];
+                        ssd += diff * diff;
+                    }
+
+                    if (ssd < bestDistSq)
+                    {
+                        secondBestDistSq = bestDistSq;
+                        secondBestIdx = bestIdx;
+                        bestDistSq = ssd;
+                        bestIdx = j;
+                    }
+                    else if (ssd < secondBestDistSq)
+                    {
+                        secondBestDistSq = ssd;
+                        secondBestIdx = j;
+                    }
+                }
+
+                // 2. Lowe's ratio test manually
+                if (bestIdx != -1 && secondBestIdx != -1)
+                {
+                    if (std::sqrt(bestDistSq) < ratioThresh * std::sqrt(secondBestDistSq))
+                    {
+                        cv::DMatch match(i, bestIdx, std::sqrt(bestDistSq));
+#pragma omp critical
+                        good_matches.push_back(match);
+                    }
+                }
             }
 
-            // ── Annotate Image 2 panel to show which ROI matched how many ─────
-            // (draw the ROI border + small count label onto lblImage2's pixmap)
+            // 3. RANSAC Geometric Verification via Homography
+            std::vector<cv::DMatch> inlier_matches;
+            if (good_matches.size() >= 4)
+            {
+                std::vector<cv::Point2f> srcPts, dstPts;
+                for (const auto &m : good_matches)
+                {
+                    srcPts.push_back(roi_kp[m.queryIdx].pt);
+                    dstPts.push_back(kp1[m.trainIdx].pt);
+                }
+
+                std::vector<uchar> inliersMask;
+                cv::Mat H = cv::findHomography(srcPts, dstPts, cv::RANSAC, 3.0, inliersMask);
+
+                for (size_t i = 0; i < inliersMask.size(); ++i)
+                {
+                    if (inliersMask[i])
+                    {
+                        inlier_matches.push_back(good_matches[i]);
+                    }
+                }
+            }
+
+            totalMatches += (int)inlier_matches.size();
+
+            // 4. Draw Cross-Panel Connections
+            cv::Mat crop = img2(roi).clone();
+
+            int maxRows = std::max(crop.rows, img1.rows);
+            int totalCols = crop.cols + img1.cols;
+            cv::Mat composite = cv::Mat::zeros(maxRows, totalCols, CV_8UC3);
+
+            cv::Mat outCrop = composite(cv::Rect(0, 0, crop.cols, crop.rows));
+            crop.copyTo(outCrop);
+            cv::Mat outImg1 = composite(cv::Rect(crop.cols, 0, img1.cols, img1.rows));
+            img1.copyTo(outImg1);
+
+            // Highlight the extracted patch boundary
+            cv::rectangle(composite, cv::Rect(0, 0, crop.cols, crop.rows), color, 2);
+
+            for (const auto &match : inlier_matches)
+            {
+                cv::Point2f pt1 = roi_kp[match.queryIdx].pt;
+                // Shift src pt to be relative to the cropped ROI box
+                pt1.x -= roi.x;
+                pt1.y -= roi.y;
+
+                // Shift target pt to the right panel
+                cv::Point2f pt2 = kp1[match.trainIdx].pt + cv::Point2f(crop.cols, 0);
+
+                cv::circle(composite, pt1, 4, color, 1, cv::LINE_AA);
+                cv::circle(composite, pt2, 4, color, 1, cv::LINE_AA);
+                cv::line(composite, pt1, pt2, color, 1, cv::LINE_AA);
+            }
+
+            // Stack vertically in final composite if multiple ROIs exist
+            if (final_composite.empty())
+            {
+                final_composite = composite;
+            }
+            else
+            {
+                int maxW = std::max(final_composite.cols, composite.cols);
+                cv::Mat top = cv::Mat::zeros(final_composite.rows, maxW, CV_8UC3);
+                final_composite.copyTo(top(cv::Rect(0, 0, final_composite.cols, final_composite.rows)));
+                cv::Mat bot = cv::Mat::zeros(composite.rows, maxW, CV_8UC3);
+                composite.copyTo(bot(cv::Rect(0, 0, composite.cols, composite.rows)));
+                cv::vconcat(top, bot, final_composite);
+            }
         }
 
-        // ── Overlay a compact legend on Image 1 result ────────────────────────
-        int ly = 18;
+        cv::Mat composite = final_composite.empty() ? img1.clone() : final_composite;
+
+        // ── Overlay a compact legend on composite result ────────────────────────
+        int ly = 24;
         for (size_t idx = 0; idx < roiRects.size(); ++idx)
         {
             cv::Scalar color = ROI_COLORS[idx % ROI_COLORS.size()];
             std::string label = "ROI " + std::to_string(idx + 1);
-            cv::rectangle(resultImg, cv::Point(8, ly - 12), cv::Point(22, ly + 2), color, -1);
-            cv::putText(resultImg, label, cv::Point(28, ly),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
-            ly += 20;
+            cv::rectangle(composite, cv::Point(8, ly - 12), cv::Point(22, ly + 2), color, -1);
+            cv::putText(composite, label, cv::Point(30, ly),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
+            ly += 24;
         }
 
         lblStatus->setText(
-            QString("Matched %1 pair(s) across %2 ROI(s).  "
+            QString("Matched %1 geometric pair(s) across %2 ROI(s).  "
                     "Ratio=%.2f  |  Contrast thr=%.3f")
                 .arg(totalMatches)
                 .arg(roiRects.size())
@@ -470,9 +563,9 @@ void MainWindow::onSiftExtractionFinished()
                 .arg((double)contrastThresh));
 
         // ── Push result to Panel 3 ────────────────────────────────────────────
-        cv::cvtColor(resultImg, resultImg, cv::COLOR_BGR2RGB);
-        QImage qout(resultImg.data, resultImg.cols, resultImg.rows,
-                    (int)resultImg.step, QImage::Format_RGB888);
+        cv::cvtColor(composite, composite, cv::COLOR_BGR2RGB);
+        QImage qout(composite.data, composite.cols, composite.rows,
+                    (int)composite.step, QImage::Format_RGB888);
         lblOutputImage->setPixmap(QPixmap::fromImage(qout.copy()));
     }
     catch (const cv::Exception &e)
