@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "SiftCore.hpp"
 #include "Timer.hpp"
+#include "io/image_handler.hpp"
 
 #include <QFileDialog>
 #include <QMessageBox>
@@ -94,7 +95,12 @@ void MainWindow::onLoadImage1()
     QString fileName = QFileDialog::getOpenFileName(this, "Open Image 1", "", "Images (*.png *.jpg *.jpeg *.bmp)");
     if (!fileName.isEmpty())
     {
-        img1 = cv::imread(fileName.toStdString());
+        try {
+            img1 = loadImage(fileName.toStdString()).mat;
+        } catch (const std::exception& e) {
+            QMessageBox::critical(this, "Error loading image", e.what());
+            return;
+        }
         downscaleImageIfNeeded(img1);
 
         cv::Mat rgb;
@@ -148,7 +154,12 @@ void MainWindow::onLoadImage2()
     QString fileName = QFileDialog::getOpenFileName(this, "Open Image 2", "", "Images (*.png *.jpg *.jpeg *.bmp)");
     if (!fileName.isEmpty())
     {
-        img2 = cv::imread(fileName.toStdString());
+        try {
+            img2 = loadImage(fileName.toStdString()).mat;
+        } catch (const std::exception& e) {
+            QMessageBox::critical(this, "Error loading image", e.what());
+            return;
+        }
         downscaleImageIfNeeded(img2);
 
         cv::Mat rgb;
