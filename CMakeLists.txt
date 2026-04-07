@@ -32,6 +32,11 @@ add_executable(${PROJECT_NAME}
 
     # Main window
     "src/mainwindow.cpp"
+    "src/mainwindow_setup.cpp"
+    "src/mainwindow_shared.cpp"
+    "src/mainwindow_tab1.cpp"
+    "src/mainwindow_tab2.cpp"
+    "src/mainwindow_tab3.cpp"
     "include/mainwindow.h"
 
     # Widgets (moved to widgets/ sub-path)
@@ -42,6 +47,10 @@ add_executable(${PROJECT_NAME}
 
     # SIFT
     "src/SiftCore.cpp"
+    "src/sift/sift_extract.cpp"
+    "src/sift/sift_pyramid.cpp"
+    "src/sift/sift_extrema_orientation.cpp"
+    "src/sift/sift_descriptor.cpp"
     "src/Timer.cpp"
 
     # Harris pipeline

@@ -110,9 +110,9 @@ private:
     cv::Mat        toGray(const cv::Mat& src);
 
     // ── Tab 1 helpers ──────────────────────────────────────────────────────
-    void runHarris(const cv::Mat& gray, float threshold, float k,
+    void runHarris(float threshold, float k,
                    int halfWin, CornerResult& out);
-    void runShiTomasi(const cv::Mat& gray, float threshold,
+    void runShiTomasi(float threshold,
                       int halfWin, CornerResult& out);
     void displayCornerResult(const CornerResult& result, const QString& modeName);
 
