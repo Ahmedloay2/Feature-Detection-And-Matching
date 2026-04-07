@@ -1,10 +1,18 @@
+/**
+ * @file sift_extract.cpp
+ * @brief Implements the complete SIFT feature extraction pipeline coordination.
+ */
+
 #include "SiftCore.hpp"
 
 #include <opencv2/imgproc.hpp>
 
 namespace cv_assign
 {
-// Entry point that orchestrates the full SIFT pipeline.
+/// Main orchestration function for SIFT extraction pipeline.
+/// Converts input to grayscale, normalizes to [0,1] float, builds pyramids,
+/// detects extrema, assigns orientations, and computes 128-D descriptors.
+/// Returns detected keypoints and their descriptors for matching.
 void SiftProcessor::extractFeatures(const cv::Mat& image,
                                     std::vector<cv::KeyPoint>& keypoints,
                                     cv::Mat& descriptors,

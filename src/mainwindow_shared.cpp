@@ -1,3 +1,15 @@
+/**
+ * @file mainwindow_shared.cpp
+ * @brief Implements shared utilities used across all tabs: image I/O, conversions, and helpers.
+ *
+ * Provides:
+ * - Image file loading (file dialog + loadImage wrapper)
+ * - OpenCV Mat ↔ Qt QPixmap conversion (color space handling: BGR↔RGB, grayscale)
+ * - Image preprocessing: auto-downsampling for large images
+ * - Status bar updates and user feedback messages
+ * - Image caching and reuse across tabs
+ */
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
@@ -9,8 +21,6 @@
 
 #include <QFileDialog>
 #include <QMessageBox>
-
-// Shared conversion helpers and image-loading slots.
 
 QPixmap MainWindow::matToPixmap(const cv::Mat& mat)
 {

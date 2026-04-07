@@ -1,13 +1,19 @@
+/**
+ * @file interactive_label.cpp
+ * @brief Implements ROI rectangle drawing, live feedback, and coordinate transformations.
+ */
+
 #include "widgets/interactive_label.h"
 
+/// Constructor: Create an interactive label and enable mouse tracking.
 InteractiveLabel::InteractiveLabel(QWidget* parent)
     : QLabel(parent)
 {
     setMouseTracking(true);
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
+/// Get all confirmed ROI rectangles, rescaled to pixmap pixel space.
+/// Computes aspect ratio from widget and pixmap dimensions, then scales stored ROIs.
 std::vector<QRect> InteractiveLabel::getSelectedROIs() const
 {
     std::vector<QRect> mapped;
@@ -26,6 +32,7 @@ std::vector<QRect> InteractiveLabel::getSelectedROIs() const
     return mapped;
 }
 
+/// Remove all ROI rectangles and reset to empty state.
 void InteractiveLabel::clearROI()
 {
     currentROI = {};
@@ -33,6 +40,7 @@ void InteractiveLabel::clearROI()
     update();
 }
 
+/// Remove the most recently added ROI (undo operation).
 void InteractiveLabel::removeLastROI()
 {
     if (!rois.empty()) {
@@ -40,8 +48,6 @@ void InteractiveLabel::removeLastROI()
         update();
     }
 }
-
-// ─── Mouse events ─────────────────────────────────────────────────────────────
 
 void InteractiveLabel::mousePressEvent(QMouseEvent* event)
 {
@@ -80,8 +86,6 @@ void InteractiveLabel::mouseReleaseEvent(QMouseEvent* event)
     }
     QLabel::mouseReleaseEvent(event);
 }
-
-// ─── Paint ───────────────────────────────────────────────────────────────────
 
 void InteractiveLabel::paintEvent(QPaintEvent* event)
 {

@@ -1,9 +1,15 @@
+/**
+ * @file zoomable_image.cpp
+ * @brief Implements smooth zoom scaling, pan offset handling, and display updates.
+ */
+
 #include "widgets/zoomable_image.hpp"
 #include <algorithm>
 #include <QApplication>
 #include <QtMath>
 #include <QResizeEvent>
 
+/// Constructor: Create a zoomable image label with proper alignment and input handling.
 ZoomableImageLabel::ZoomableImageLabel(QWidget* parent)
     : QLabel(parent)
 {
@@ -13,6 +19,7 @@ ZoomableImageLabel::ZoomableImageLabel(QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
 
+/// Set the image to display and reset zoom to 1x, pan offset to origin.
 void ZoomableImageLabel::setImage(const QPixmap& pix)
 {
     original_ = pix;
@@ -23,6 +30,7 @@ void ZoomableImageLabel::setImage(const QPixmap& pix)
     updateDisplay();
 }
 
+/// Reset zoom level to 1.0 (fit-to-window) and clear pan offset.
 void ZoomableImageLabel::resetZoom()
 {
     zoom_ = 1.0;
@@ -30,6 +38,8 @@ void ZoomableImageLabel::resetZoom()
     updateDisplay();
 }
 
+/// Set the container (parent widget) size for layout calculations.
+/// Triggers display update if an image is loaded.
 void ZoomableImageLabel::setContainerSize(int width, int height)
 {
     containerW_ = width;
@@ -53,7 +63,6 @@ void ZoomableImageLabel::resizeEvent(QResizeEvent* event)
     }
 }
 
-// ─── Wheel = zoom (no page-scroll side-effects) ───────────────────────────────
 void ZoomableImageLabel::wheelEvent(QWheelEvent* event)
 {
     if (original_.isNull()) { event->ignore(); return; }
@@ -65,7 +74,6 @@ void ZoomableImageLabel::wheelEvent(QWheelEvent* event)
     event->accept();   // consume — prevents QScrollArea from scrolling
 }
 
-// ─── Middle-click or Shift+Left = pan ────────────────────────────────────────
 void ZoomableImageLabel::mousePressEvent(QMouseEvent* event)
 {
     bool wantPan = (event->button() == Qt::MiddleButton) ||
@@ -106,7 +114,6 @@ void ZoomableImageLabel::mouseReleaseEvent(QMouseEvent* event)
     }
 }
 
-// ─── Render ───────────────────────────────────────────────────────────────────
 void ZoomableImageLabel::updateDisplay()
 {
     if (original_.isNull()) return;

@@ -1,3 +1,16 @@
+/**
+ * @file mainwindow_tab1.cpp
+ * @brief Implements Tab 1: Harris/Shi-Tomasi corner detection pipeline and visualization.
+ *
+ * Handles:
+ * - Async corner detection via QtConcurrent::run() with QFutureWatcher
+ * - Parameter updates from UI sliders (k, threshold, NMS window)
+ * - Detector mode switching (Harris ↔ Shi-Tomasi)
+ * - Result caching: reuses cached results when parameters unchanged
+ * - Corner visualization: renders detected points as colored circles on images
+ * - Per-stage timing measurement and status bar updates
+ */
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
@@ -10,8 +23,6 @@
 #include <chrono>
 
 using Clock = std::chrono::high_resolution_clock;
-
-// Tab 1 only: corner parameters, caching, and result rendering.
 
 void MainWindow::onCornerModeChanged(int index)
 {

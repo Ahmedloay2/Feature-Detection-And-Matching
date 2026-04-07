@@ -1,3 +1,16 @@
+/**
+ * @file mainwindow_tab2.cpp
+ * @brief Implements Tab 2: SIFT feature extraction and scale-space visualization.
+ *
+ * Handles:
+ * - Async SIFT extraction via QtConcurrent with progress tracking
+ * - Parameter updates (contrast threshold, octaves, scales per octave)
+ * - Overlay options: display Harris/Shi-Tomasi corners alongside SIFT keypoints
+ * - Keypoint visualization: circles scaled by feature size, lines for orientation
+ * - Descriptor caching: results reused for Tab 3 matching when parameters unchanged
+ * - SIFT pipeline orchestration (Gaussian pyramid → extrema → descriptor computation)
+ */
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
@@ -10,8 +23,6 @@
 #include <chrono>
 
 using Clock = std::chrono::high_resolution_clock;
-
-// Tab 2 only: corner-cache use + SIFT extraction workflow.
 
 void MainWindow::onSiftContrastChanged(int v)
 {

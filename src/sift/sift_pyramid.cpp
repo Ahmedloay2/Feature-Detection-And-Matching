@@ -1,3 +1,8 @@
+/**
+ * @file sift_pyramid.cpp
+ * @brief Implements Gaussian and Difference-of-Gaussians pyramid construction for scale-space.
+ */
+
 #include "SiftCore.hpp"
 
 #include <opencv2/imgproc.hpp>
@@ -5,7 +10,11 @@
 
 namespace cv_assign
 {
-// Gaussian and DoG pyramid construction.
+/// Builds a Gaussian pyramid with multiple octaves and scales.
+/// Each octave is a factor of 2 reduction in resolution. Within each octave,
+/// numScales layers are created with progressively increasing sigma values
+/// (k = 2^(1/numScales)). This creates the scale-space representation needed
+/// to detect keypoints at multiple scales.
 void SiftProcessor::buildGaussianPyramid(const cv::Mat& baseImage,
                                          std::vector<std::vector<cv::Mat>>& gaussPyramid,
                                          int numOctaves,

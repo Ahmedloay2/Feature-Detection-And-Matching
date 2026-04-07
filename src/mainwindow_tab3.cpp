@@ -1,3 +1,16 @@
+/**
+ * @file mainwindow_tab3.cpp
+ * @brief Implements Tab 3: Feature matching between two images with ROI filtering.
+ *
+ * Handles:
+ * - Async descriptor matching (SSD with Lowe's ratio test or NCC with correlation)
+ * - ROI-based filtering: restrict matching to user-drawn rectangular regions
+ * - Method selection and threshold tuning (SSD ratio threshold or NCC correlation)
+ * - Match rendering: draws lines connecting corresponding keypoints
+ * - Result statistics: displays match count, computation time, match quality
+ * - Interactive ROI management: add/undo/clear region selections
+ */
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
@@ -12,8 +25,6 @@
 #include <cmath>
 
 using Clock = std::chrono::high_resolution_clock;
-
-// Tab 3 only: ROI handling, matcher selection, and projection rendering.
 
 void MainWindow::onMatchRatioChanged(int v)
 {

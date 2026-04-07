@@ -1,3 +1,8 @@
+/**
+ * @file sift_descriptor.cpp
+ * @brief Implements 128-dimensional descriptor generation from local orientation histograms.
+ */
+
 #include "SiftCore.hpp"
 
 #include <omp.h>
@@ -8,7 +13,7 @@ namespace
 {
 constexpr float kPi = 3.14159265358979323846f;
 
-// Helper used by descriptor post-processing passes.
+// Helper: L2-normalizes a descriptor vector in-place
 void l2Normalize(float* desc, int size)
 {
     float norm = 0.0f;
@@ -20,7 +25,11 @@ void l2Normalize(float* desc, int size)
 }
 }
 
-// Descriptor extraction around each oriented keypoint.
+/// Computes 128-dimensional SIFT descriptors for each keypoint.
+/// Divides a 16x16 pixel neighborhood around each keypoint (oriented by its dominant angle)
+/// into 4x4 sub-regions. For each sub-region, computes an 8-bin gradient orientation histogram,
+/// yielding 4*4*8 = 128 dimensions total. Applies Gaussian weighting radially from keypoint,
+/// threshold-clips high values, and L2-normalizes final descriptors for robustness.
 void SiftProcessor::computeDescriptors(const std::vector<std::vector<cv::Mat>>& gaussPyramid,
                                        std::vector<cv::KeyPoint>& keypoints,
                                        cv::Mat& descriptors,

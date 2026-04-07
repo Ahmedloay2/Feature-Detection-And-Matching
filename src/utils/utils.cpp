@@ -1,25 +1,6 @@
 /**
  * @file utils.cpp
- * @brief Non-template implementations + explicit template instantiations.
- *
- * Explicit instantiations
- * ────────────────────────
- * The two lines at the bottom of this file tell the compiler to emit
- * fully-compiled object code for convolveH<float>, convolveH<double>,
- * convolveV<float>, and convolveV<double> exactly once — here, in this
- * translation unit.
- *
- * Without them the compiler would re-instantiate (and re-compile) the
- * template body in every .cpp that includes utils.hpp, bloating compile
- * times and object sizes.  With them, every other TU uses the already-
- * compiled versions from this object file, exactly like a normal
- * function call.
- *
- * If you later need a third type (e.g. cv::float16_t), add:
- *   template cv::Mat utils::convolveH<cv::float16_t>(const cv::Mat&,
- *                                    const std::vector<cv::float16_t>&);
- *   template cv::Mat utils::convolveV<cv::float16_t>(const cv::Mat&,
- *                                    const std::vector<cv::float16_t>&);
+ * @brief Implements utility functions and explicit template instantiations for image processing.
  */
 
 #include "utils/utils.hpp"   // pulls in utils_impl.hpp automatically

@@ -1,3 +1,8 @@
+/**
+ * @file harris_main.cpp
+ * @brief Implements the pipeline orchestration for Harris and Shi-Tomasi corner detection.
+ */
+
 #include "../../include/processors/harris_main.hpp"
 #include <model/image.hpp>
 #include <processors/harris/grayscale.hpp>
@@ -13,6 +18,10 @@
 #include <iostream>
 using Clock = std::chrono::high_resolution_clock;
 
+/// Main orchestration function that runs the complete corner detection pipeline.
+/// Executes stages in order: grayscale -> gradient -> structure tensor ->
+/// response computation (Harris or Shi-Tomasi) -> threshold -> NMS.
+/// Times each stage and prints to stdout. Returns detected corner pixel coordinates.
 std::vector<cv::Point> applyHarris(Image& image, float k,
     const std::string& mode, float threshold, int halfWindow)
 {

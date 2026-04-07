@@ -1,3 +1,15 @@
+/**
+ * @file mainwindow_setup.cpp
+ * @brief Implements UI initialization: slider ranges, default values, and signal/slot connections.
+ *
+ * Responsible for:
+ * - Setting parameter slider ranges and step sizes
+ * - Initializing default parameter values from member variables
+ * - Connecting all user input signals (sliders, buttons, combos) to slots
+ * - Wiring async task completion handlers (QFutureWatcher::finished signals)
+ * - Configuring button enabled/disabled states based on loaded images
+ */
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
@@ -8,8 +20,6 @@
 
 #include <algorithm>
 #include <cmath>
-
-// UI setup and signal wiring only.
 
 void MainWindow::setupTab1()
 {

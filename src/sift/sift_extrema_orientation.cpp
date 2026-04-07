@@ -1,3 +1,8 @@
+/**
+ * @file sift_extrema_orientation.cpp
+ * @brief Implements DoG extrema detection, filtering, and dominant orientation assignment.
+ */
+
 #include "SiftCore.hpp"
 
 #include <omp.h>
@@ -9,7 +14,10 @@ namespace
 constexpr float kPi = 3.14159265358979323846f;
 }
 
-// Keypoint candidate detection in DoG space.
+/// Detects local extrema (minima and maxima) in the Difference-of-Gaussians (DoG) pyramid.
+/// For each scale within an octave, examines 3x3x3 neighborhoods across different scales
+/// to find pixels that are local extrema. Filters based on contrast threshold to remove
+/// low-contrast keypoints. Uses thread-level local storage for efficiency.
 void SiftProcessor::detectExtrema(const std::vector<std::vector<cv::Mat>>& dogPyramid,
                                   std::vector<cv::KeyPoint>& keypoints,
                                   float contrastThreshold,

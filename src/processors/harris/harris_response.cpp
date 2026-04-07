@@ -1,6 +1,14 @@
+/**
+ * @file harris_response.cpp
+ * @brief Implements Harris corner response: det(M) - k*tr(M)^2 from structure tensor.
+ */
+
 #include <model/image.hpp>
 #include "../../../include/processors/harris/harris_response.hpp"
 
+/// Computes Harris corner response from pre-computed structure tensor elements.
+/// Uses the formula: R = det(M) - k*trace(M)²
+/// where det(M) = Sxx*Syy - Sxy² and trace(M) = Sxx + Syy
 void computeHarrisResponse(Image& img, float k)
 {
 	if (!img.has("structure_xx")|| !img.has("structure_yy") || !img.has("structure_xy"))

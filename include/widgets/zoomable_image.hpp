@@ -1,33 +1,38 @@
-#pragma once
 /**
  * @file zoomable_image.hpp
- * @brief ZoomableImageLabel — mouse-wheel zoom + middle-click pan.
- *
- * SRP: Only handles display zoom/pan; no image processing.
- * Usage: setImage(pixmap) then the user can scroll to zoom and
- *        middle-click-drag (or Shift+Left-drag) to pan.
- *
- * Zoom: mouse wheel, centered on cursor position.
- * Pan:  middle-mouse-button drag  OR  Shift + left-drag.
+ * @brief Declares a custom QLabel with mouse-wheel zoom and middle-click pan support.
  */
 
+#pragma once
 #include <QLabel>
 #include <QPixmap>
 #include <QWheelEvent>
 #include <QMouseEvent>
 
+/// @brief Interactive image display widget with zoom and pan capabilities.
+///
+/// Extends QLabel to provide smooth image viewing with mouse wheel zoom (1-8x),
+/// Shift+drag and middle-click pan. Automatic scaling maintains aspect ratio.
 class ZoomableImageLabel : public QLabel
 {
     Q_OBJECT
 
 public:
+    /// @brief Construct a zoomable image label.
     explicit ZoomableImageLabel(QWidget* parent = nullptr);
 
+    /// @brief Set the image to display (resets zoom to 1x).
     void setImage(const QPixmap& pixmap);
+    
+    /// @brief Reset zoom to 1x and clear pan offset.
     void resetZoom();
+    
+    /// @brief Set the container size for layout calculations.
     void setContainerSize(int width, int height);
 
+    /// @brief Get current zoom level (1.0 = fit, 8.0 = max).
     double zoomLevel() const { return zoom_; }
+    
     QSize sizeHint() const override;
 
 protected:

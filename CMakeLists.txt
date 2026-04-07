@@ -1,38 +1,30 @@
 cmake_minimum_required(VERSION 3.14)
 project(FeatureDetectionAndMatching LANGUAGES CXX)
 
-# ── Layout roots (project location organization) ─────────────────────────────
 set(PROJECT_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include")
 set(PROJECT_UI_DIR      "${CMAKE_SOURCE_DIR}/ui")
 set(PROJECT_SRC_DIR     "${CMAKE_SOURCE_DIR}/src")
-set(PROJECT_LEGACY_DIR  "${CMAKE_SOURCE_DIR}/src2")
-
-option(SURFACE_LEGACY_LAYOUT "Show legacy src2 files in IDE filters (not built)" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Qt6 Configuration
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS "${PROJECT_UI_DIR}")
 set(CMAKE_AUTOMOC_COMPILER_PREDEFINES ON)
 
-# ── OpenCV ────────────────────────────────────────────────────────────────────
+# OpenCV Configuration
 set(OpenCV_INCLUDE_DIRS "D:/opencv/build/include")
-set(OpenCV_LIB
-    "$<IF:$<CONFIG:Debug>,D:/opencv/build/x64/vc16/lib/opencv_world4120d.lib,D:/opencv/build/x64/vc16/lib/opencv_world4120.lib>"
-)
-set(OpenCV_DLL
-    "$<IF:$<CONFIG:Debug>,D:/opencv/build/x64/vc16/bin/opencv_world4120d.dll,D:/opencv/build/x64/vc16/bin/opencv_world4120.dll>"
-)
+set(OpenCV_LIB "$<IF:$<CONFIG:Debug>,D:/opencv/build/x64/vc16/lib/opencv_world4120d.lib,D:/opencv/build/x64/vc16/lib/opencv_world4120.lib>")
+set(OpenCV_DLL "$<IF:$<CONFIG:Debug>,D:/opencv/build/x64/vc16/bin/opencv_world4120d.dll,D:/opencv/build/x64/vc16/bin/opencv_world4120.dll>")
 
-# ── Qt6 ───────────────────────────────────────────────────────────────────────
+# Qt6 Libraries
 find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent)
 
-# ── Sources ───────────────────────────────────────────────────────────────────
-set(UI_FILES
-    "${PROJECT_UI_DIR}/mainwindow.ui"
-)
+# Source Files
+set(UI_FILES "${PROJECT_UI_DIR}/mainwindow.ui")
 
 set(CORE_FILES
     "${PROJECT_SRC_DIR}/main.cpp"
@@ -96,6 +88,7 @@ source_group(TREE ${CMAKE_SOURCE_DIR} FILES
     ${IO_UTIL_FILES}
 )
 
+# Include Directories
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${PROJECT_INCLUDE_DIR}
     ${OpenCV_INCLUDE_DIRS}
@@ -103,23 +96,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/FeatureDetectionAndMatching_autogen/include
 )
 
-if(SURFACE_LEGACY_LAYOUT)
-    file(GLOB_RECURSE LEGACY_LAYOUT_FILES CONFIGURE_DEPENDS
-        "${PROJECT_LEGACY_DIR}/*.cpp"
-        "${PROJECT_LEGACY_DIR}/*.h"
-        "${PROJECT_LEGACY_DIR}/*.hpp"
-        "${CMAKE_SOURCE_DIR}/feature_detection.ui"
-    )
-    source_group(TREE ${CMAKE_SOURCE_DIR} PREFIX "legacy" FILES ${LEGACY_LAYOUT_FILES})
-endif()
-
+# Link Libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OpenCV_LIB}
     Qt6::Widgets
     Qt6::Concurrent
 )
 
-# ── Copy OpenCV DLL ───────────────────────────────────────────────────────────
+# Post-Build: Copy OpenCV DLL
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${OpenCV_DLL}"
@@ -127,7 +111,7 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMENT "Copying OpenCV DLL..."
 )
 
-# ── Deploy Qt DLLs ────────────────────────────────────────────────────────────
+# Post-Build: Deploy Qt DLLs
 find_program(WINDEPLOYQT_EXECUTABLE windeployqt
     HINTS "${CMAKE_PREFIX_PATH}/bin"
 )
@@ -143,5 +127,6 @@ if(WINDEPLOYQT_EXECUTABLE)
     )
 endif()
 
+# Set VS startup project
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})

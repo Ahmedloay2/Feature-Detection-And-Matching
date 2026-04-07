@@ -1,6 +1,14 @@
+/**
+ * @file shi_tomasi.cpp
+ * @brief Implements Shi-Tomasi corner response using minimum eigenvalue of structure tensor.
+ */
+
 #include "../../../include/processors/harris/shi_tomasi.hpp"
 #include <model/image.hpp>
 
+/// Computes Shi-Tomasi response as min(λ1, λ2) from structure tensor elements.
+/// Uses efficient formula: R = (trace(M) - sqrt(trace(M)² - 4*det(M))) / 2
+/// which avoids explicit eigenvalue decomposition.
 void computeShiTomasi(Image& img)
 {
 	if (!img.has("structure_xx") || !img.has("structure_yy") || !img.has("structure_xy"))

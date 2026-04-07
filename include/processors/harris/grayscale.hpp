@@ -1,25 +1,20 @@
 /**
  * @file grayscale.hpp
- * @brief Grayscale color space conversion for Canny edge detection.
- *
- * This module handles the conversion of color images to grayscale using
- * the standard luminance formula for proper color weighting.
+ * @brief Declares color-to-grayscale conversion using ITU-R BT.601 weighting.
  */
 
 #pragma once
 #include "model/image.hpp"
 
-/**
- * @brief Convert an image to grayscale using the standard luminance formula.
- *
- * Converts the input image from color (BGR, CV_8UC3) or grayscale (CV_8UC1)
- * to grayscale format using the ITU-R BT.601 luma coefficient formula:
- * gray = 0.299*R + 0.587*G + 0.114*B
- *
- * If the input is already grayscale, it is stored as-is.
- * Unsupported channel counts (other than 1 or 3) throw an exception.
- *
- * @param img The image to convert. img.mat is read, result stored in img.cache["grayscale"]
- * @throws std::runtime_error if the input image has an unsupported number of channels
- */
-void toGrayscale(Image& img);
+/// @brief Convert RGB or BGR image to grayscale using ITU-R BT.601 weighting.
+///
+/// Uses the ITU-R BT.601 standard formula:
+/// $$Gray = 0.299 \\cdot R + 0.587 \\cdot G + 0.114 \\cdot B$$
+///
+/// If the image is already grayscale, it is copied without modification.
+/// This is the first preprocessing stage for all feature detectors.
+///
+/// @param img The image to process. Reads img.cache["loaded"] or img.mat (original image).
+///            Stores img.cache["grayscale"] (CV_8UC1 or CV_32FC1)
+/// @throws std::runtime_error if the image hasn't been loaded yet
+void convertToGrayscale(Image& img);

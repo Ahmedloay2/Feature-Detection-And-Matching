@@ -1,6 +1,6 @@
 /**
  * @file gaussian.cpp
- * @brief Implementation of Gaussian blur filtering.
+ * @brief Implements Gaussian smoothing using separable convolution filters.
  */
 
 #include "../../../include/model/image.hpp"
@@ -8,21 +8,14 @@
 #include <opencv2/core/mat.hpp>
 #include "../../../include/utils/utils.hpp"
 
- /**
-  * @brief Apply separable Gaussian blur to the grayscale image.
-  *
-  * Uses a 5-tap 1D Gaussian kernel [1/16, 4/16, 6/16, 4/16, 1/16] applied
-  * separably (horizontal then vertical), matching OpenCV's approach of
-  * smoothing before gradient computation.
-  *
-  * @param img  Reads img.cache["grayscale"], stores result to img.cache["gaussian"]
-  * @throws std::runtime_error if grayscale stage hasn't been computed
-  */
-void applyGaussian(Image& img) {
+ /// Applies separable 5-tap Gaussian blur to smooth the grayscale image.
+/// Uses kernel [1/16, 4/16, 6/16, 4/16, 1/16] applied horizontally then vertically.
+/// Separable convolution reduces complexity from O(n*k²) to O(n*k).
+void applyGaussianBlur(Image& img, float sigma) {
     if (!img.has("grayscale"))
         throw std::runtime_error("Grayscale image not found. Run grayscale processor first.");
 
-    // Read the grayscale mat (CV_32F, produced by toGrayscale)
+    // Read the grayscale mat (CV_32F, produced by convertToGrayscale)
     cv::Mat src = img.get("grayscale");
 
     // 5-tap Gaussian kernel — stays in float to match the rest of the pipeline
