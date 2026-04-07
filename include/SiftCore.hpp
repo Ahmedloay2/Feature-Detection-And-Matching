@@ -15,27 +15,33 @@ namespace cv_assign
         static void extractFeatures(const cv::Mat &image,
                                     std::vector<cv::KeyPoint> &keypoints,
                                     cv::Mat &descriptors,
-                                    float contrastThreshold = 0.007f);
+                                    float contrastThreshold = 0.007f,
+                                    int numOctaves = 4,    
+                                    int numScales = 3);
 
     private:
-        static constexpr int NUM_OCTAVES = 3;
-        static constexpr int NUM_SCALES = 3;
         static constexpr int CELLS_PER_ROW = 4;
         static constexpr int NUM_BINS = 8;
         static constexpr float SIGMA = 1.6f;
         static constexpr float CONTRAST_THRESHOLD = 0.04f; // kept for reference
 
         static void buildGaussianPyramid(const cv::Mat &baseImage,
-                                         std::vector<std::vector<cv::Mat>> &gaussPyramid);
+                                         std::vector<std::vector<cv::Mat>> &gaussPyramid,
+                                         int numOctaves,
+                                         int numScales);
         static void buildDoGPyramid(const std::vector<std::vector<cv::Mat>> &gaussPyramid,
                                     std::vector<std::vector<cv::Mat>> &dogPyramid);
         static void detectExtrema(const std::vector<std::vector<cv::Mat>> &dogPyramid,
                                   std::vector<cv::KeyPoint> &keypoints,
-                                  float contrastThreshold);
+                                  float contrastThreshold,
+                                  int numOctaves,
+                                  int numScales);
         static void assignOrientations(const std::vector<std::vector<cv::Mat>> &gaussPyramid,
-                                       std::vector<cv::KeyPoint> &keypoints);
+                                       std::vector<cv::KeyPoint> &keypoints,
+                                       int numOctaves);
         static void computeDescriptors(const std::vector<std::vector<cv::Mat>> &gaussPyramid,
                                        std::vector<cv::KeyPoint> &keypoints,
-                                       cv::Mat &descriptors);
+                                       cv::Mat &descriptors,
+                                       int numOctaves);
     };
 }

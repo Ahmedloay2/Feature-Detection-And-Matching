@@ -10,10 +10,14 @@ namespace cv_assign
     void SiftProcessor::extractFeatures(const cv::Mat &image,
                                         std::vector<cv::KeyPoint> &keypoints,
                                         cv::Mat &descriptors,
-                                        float contrastThreshold)
+                                        float contrastThreshold,
+                                        int numOctaves,
+                                        int numScales)
     {
         if (image.empty())
             return;
+        numOctaves = std::max(1, numOctaves);
+        numScales = std::max(2, numScales);
         cv::Mat gray;
         if (image.channels() == 3)
             cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
@@ -22,35 +26,43 @@ namespace cv_assign
         cv::Mat grayFloat;
         gray.convertTo(grayFloat, CV_32F, 1.0 / 255.0);
         std::vector<std::vector<cv::Mat>> gaussPyramid, dogPyramid;
-        buildGaussianPyramid(grayFloat, gaussPyramid);
+        buildGaussianPyramid(grayFloat, gaussPyramid, numOctaves, numScales);
         buildDoGPyramid(gaussPyramid, dogPyramid);
-        detectExtrema(dogPyramid, keypoints, contrastThreshold);
-        assignOrientations(gaussPyramid, keypoints);
-        computeDescriptors(gaussPyramid, keypoints, descriptors);
+        detectExtrema(dogPyramid, keypoints, contrastThreshold, numOctaves, numScales);
+        assignOrientations(gaussPyramid, keypoints, numOctaves);
+        computeDescriptors(gaussPyramid, keypoints, descriptors, numOctaves);
     }
 
     void SiftProcessor::buildGaussianPyramid(const cv::Mat &baseImage,
-                                             std::vector<std::vector<cv::Mat>> &gaussPyramid)
+                                             std::vector<std::vector<cv::Mat>> &gaussPyramid,
+                                             int numOctaves,
+                                             int numScales)
     {
-        gaussPyramid.resize(NUM_OCTAVES);
-        float k = std::pow(2.0f, 1.0f / NUM_SCALES);
-        for (int oct = 0; oct < NUM_OCTAVES; oct++)
+        gaussPyramid.clear();
+        gaussPyramid.resize(numOctaves);
+        float k = std::pow(2.0f, 1.0f / static_cast<float>(numScales));
+        for (int oct = 0; oct < numOctaves; oct++)
         {
             cv::Mat octBase;
             if (oct == 0)
                 octBase = baseImage;
             else
             {
-                if (gaussPyramid[oct - 1].size() <= (size_t)NUM_SCALES ||
-                    gaussPyramid[oct - 1][NUM_SCALES].cols <= 4 ||
-                    gaussPyramid[oct - 1][NUM_SCALES].rows <= 4)
+                // Safety check: ensure previous octave exists and has enough scales
+                if (oct - 1 < 0 || oct - 1 >= (int)gaussPyramid.size())
                     break;
-                cv::resize(gaussPyramid[oct - 1][NUM_SCALES], octBase, cv::Size(), 0.5, 0.5, cv::INTER_AREA);
+                if (gaussPyramid[oct - 1].empty() || gaussPyramid[oct - 1].size() <= (size_t)numScales)
+                    break;
+                if (gaussPyramid[oct - 1][numScales].empty() ||
+                    gaussPyramid[oct - 1][numScales].cols <= 4 ||
+                    gaussPyramid[oct - 1][numScales].rows <= 4)
+                    break;
+                cv::resize(gaussPyramid[oct - 1][numScales], octBase, cv::Size(), 0.5, 0.5, cv::INTER_AREA);
             }
-            gaussPyramid[oct].resize(NUM_SCALES + 3);
+            gaussPyramid[oct].resize(numScales + 3);
             float base_sigma = (oct == 0) ? 0.0f : SIGMA;
 #pragma omp parallel for
-            for (int s = 0; s < NUM_SCALES + 3; s++)
+            for (int s = 0; s < numScales + 3; s++)
             {
                 float total_sigma = SIGMA * std::pow(k, s);
                 float apply_sigma = std::sqrt(std::max(0.0f, total_sigma * total_sigma - base_sigma * base_sigma));
@@ -65,10 +77,12 @@ namespace cv_assign
     void SiftProcessor::buildDoGPyramid(const std::vector<std::vector<cv::Mat>> &gaussPyramid,
                                         std::vector<std::vector<cv::Mat>> &dogPyramid)
     {
-        dogPyramid.resize(NUM_OCTAVES);
-        for (int oct = 0; oct < NUM_OCTAVES; oct++)
+        dogPyramid.resize(gaussPyramid.size());
+        for (size_t oct = 0; oct < gaussPyramid.size(); oct++)
         {
             int n = (int)gaussPyramid[oct].size();
+            if (n < 2)
+                continue;
             dogPyramid[oct].resize(n - 1);
 #pragma omp parallel for
             for (int s = 0; s < n - 1; s++)
@@ -81,19 +95,26 @@ namespace cv_assign
     //  0.013 = Lowe standard | 0.030 = strict
     void SiftProcessor::detectExtrema(const std::vector<std::vector<cv::Mat>> &dogPyramid,
                                       std::vector<cv::KeyPoint> &keypoints,
-                                      float contrastThreshold)
+                                      float contrastThreshold,
+                                      int numOctaves,
+                                      int numScales)
     {
         keypoints.clear();
         std::vector<std::vector<cv::KeyPoint>> local_kps(omp_get_max_threads());
-        for (int oct = 0; oct < NUM_OCTAVES; oct++)
+        for (int oct = 0; oct < numOctaves && oct < (int)dogPyramid.size(); oct++)
         {
             if (dogPyramid[oct].empty())
                 continue;
             int rows = dogPyramid[oct][0].rows;
             int cols = dogPyramid[oct][0].cols;
             int scales = (int)dogPyramid[oct].size();
+            if (rows <= 2 || cols <= 2 || scales <= 2)  // Need at least 3 scales
+                continue;
             for (int s = 1; s < scales - 1; s++)
             {
+                // Verify indices before accessing
+                if (s <= 0 || s >= scales - 1)
+                    continue;
 #pragma omp parallel for collapse(2)
                 for (int r = 1; r < rows - 1; r++)
                 {
@@ -120,7 +141,7 @@ namespace cv_assign
                             int tid = omp_get_thread_num();
                             cv::KeyPoint kp;
                             kp.pt = cv::Point2f(c * std::pow(2.f, oct), r * std::pow(2.f, oct));
-                            kp.size = SIGMA * std::pow(2.0, (float)s / NUM_SCALES) * std::pow(2, oct) * 2.0f;
+                            kp.size = SIGMA * std::pow(2.0, (float)s / static_cast<float>(numScales)) * std::pow(2, oct) * 2.0f;
                             kp.response = std::abs(val);
                             kp.octave = oct + (s << 8);
                             local_kps[tid].push_back(kp);
@@ -134,7 +155,8 @@ namespace cv_assign
     }
 
     void SiftProcessor::assignOrientations(const std::vector<std::vector<cv::Mat>> &gaussPyramid,
-                                           std::vector<cv::KeyPoint> &keypoints)
+                                           std::vector<cv::KeyPoint> &keypoints,
+                                           int numOctaves)
     {
 #pragma omp parallel for
         for (int k = 0; k < (int)keypoints.size(); k++)
@@ -142,7 +164,10 @@ namespace cv_assign
             cv::KeyPoint &kp = keypoints[k];
             int oct = kp.octave & 255;
             int scale = (kp.octave >> 8) & 255;
-            if (oct >= NUM_OCTAVES || scale >= (int)gaussPyramid[oct].size())
+            // Safety: bound check before accessing pyramid
+            if (oct < 0 || oct >= numOctaves || oct >= (int)gaussPyramid.size() || (int)gaussPyramid[oct].size() <= 0)
+                continue;
+            if (scale < 0 || scale >= (int)gaussPyramid[oct].size())
                 continue;
             const cv::Mat &img = gaussPyramid[oct][scale];
             int r = (int)std::round(kp.pt.y / std::pow(2.f, oct));
@@ -191,7 +216,8 @@ namespace cv_assign
 
     void SiftProcessor::computeDescriptors(const std::vector<std::vector<cv::Mat>> &gaussPyramid,
                                            std::vector<cv::KeyPoint> &keypoints,
-                                           cv::Mat &descriptors)
+                                           cv::Mat &descriptors,
+                                           int numOctaves)
     {
         if (keypoints.empty())
             return;
@@ -202,7 +228,10 @@ namespace cv_assign
             cv::KeyPoint &kp = keypoints[k];
             int oct = kp.octave & 255;
             int scale = (kp.octave >> 8) & 255;
-            if (oct >= NUM_OCTAVES || scale >= (int)gaussPyramid[oct].size())
+            // Safety: validate octave and scale before accessing
+            if (oct < 0 || oct >= numOctaves || oct >= (int)gaussPyramid.size() || (int)gaussPyramid[oct].size() <= 0)
+                continue;
+            if (scale < 0 || scale >= (int)gaussPyramid[oct].size())
                 continue;
             const cv::Mat &img = gaussPyramid[oct][scale];
             int kp_r = (int)std::round(kp.pt.y / std::pow(2.f, oct));
