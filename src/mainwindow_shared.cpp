@@ -67,6 +67,17 @@ void MainWindow::onLoadImage1()
     siftResult1 = {};
     siftResult2 = {};
     matchResult = {};
+    p3_ssdMatches.clear();
+    p3_nccMatches.clear();
+    p3_lastComputedMode = -1;
+    p3_ssdInliers = 0;
+    p3_nccInliers = 0;
+    p3_ssdTimeMs = 0.0;
+    p3_nccTimeMs = 0.0;
+    p3_featureSSD = cv::Mat();
+    p3_featureNCC = cv::Mat();
+    p3_loadedSSD = cv::Mat();
+    p3_loadedNCC = cv::Mat();
     {
         std::lock_guard<std::mutex> lock(p1PipelineMutex);
         p1PipelineImage = {};
@@ -112,8 +123,53 @@ void MainWindow::onLoadImage2()
 
     siftResult2 = {};
     matchResult.loadedAnnotated = cv::Mat();
+    p3_ssdMatches.clear();
+    p3_nccMatches.clear();
+    p3_lastComputedMode = -1;
+    p3_ssdInliers = 0;
+    p3_nccInliers = 0;
+    p3_ssdTimeMs = 0.0;
+    p3_nccTimeMs = 0.0;
+    p3_featureSSD = cv::Mat();
+    p3_featureNCC = cv::Mat();
+    p3_loadedSSD = cv::Mat();
+    p3_loadedNCC = cv::Mat();
 
     ui->matchDisplayLoaded->setImage(matToPixmap(img2));
+
+    if (roiLabel && !img1.empty()) {
+        cv::Mat left = (siftResult1.valid && !siftResult1.annotated.empty())
+            ? siftResult1.annotated.clone()
+            : img1.clone();
+
+        cv::Mat leftBgr;
+        if (left.channels() == 3) leftBgr = left;
+        else cv::cvtColor(left, leftBgr, cv::COLOR_GRAY2BGR);
+
+        cv::Mat right = cv::Mat::zeros(leftBgr.rows, leftBgr.cols, CV_8UC3);
+        if (!img2.empty()) {
+            cv::Mat rightSrc;
+            if (img2.channels() == 3) rightSrc = img2;
+            else cv::cvtColor(img2, rightSrc, cv::COLOR_GRAY2BGR);
+
+            const float sx = static_cast<float>(leftBgr.cols) / std::max(1, rightSrc.cols);
+            const float sy = static_cast<float>(leftBgr.rows) / std::max(1, rightSrc.rows);
+            const float s = std::min(sx, sy);
+            const int fitW = std::max(1, static_cast<int>(std::round(rightSrc.cols * s)));
+            const int fitH = std::max(1, static_cast<int>(std::round(rightSrc.rows * s)));
+            cv::Mat fitted;
+            cv::resize(rightSrc, fitted, cv::Size(fitW, fitH), 0, 0, cv::INTER_AREA);
+            const int offX = (right.cols - fitW) / 2;
+            const int offY = (right.rows - fitH) / 2;
+            fitted.copyTo(right(cv::Rect(offX, offY, fitW, fitH)));
+        }
+
+        cv::Mat combined;
+        cv::hconcat(leftBgr, right, combined);
+        roiLabel->setPixmap(matToPixmap(combined));
+        roiLabel->clearROI();
+    }
+
     if (siftResult1.valid && !img2.empty()) ui->btnMatchFeatures->setEnabled(true);
 
     setStatus(QString("Image 2 loaded  %1 × %2").arg(img2.cols).arg(img2.rows));

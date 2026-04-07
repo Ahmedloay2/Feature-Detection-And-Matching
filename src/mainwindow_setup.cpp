@@ -4,6 +4,11 @@
 #include <QApplication>
 #include <QTabWidget>
 
+#include <opencv2/imgproc.hpp>
+
+#include <algorithm>
+#include <cmath>
+
 // UI setup and signal wiring only.
 
 void MainWindow::setupTab1()
@@ -78,13 +83,15 @@ void MainWindow::setupTab3()
 
     ui->matchDisplayLoaded->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     ui->matchDisplayLoaded->setMinimumSize(0, 0);
-    if (ui->matchScrollFeature) {
-        ui->matchScrollFeature->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        ui->matchScrollFeature->setMinimumSize(0, 0);
-    }
     ui->matchInfo->setMinimumWidth(320);
     ui->matchInfo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     ui->matchDisplayLoaded->setText("Load Image 2");
+
+    // Single-panel mode for Tab 3: render the combined correspondence canvas
+    // in the feature panel only.
+    if (ui->labelMatchLoaded) ui->labelMatchLoaded->setVisible(false);
+    if (ui->matchDisplayLoaded) ui->matchDisplayLoaded->setVisible(false);
+
     if (ui->matchMethodCombo) {
         ui->matchMethodCombo->setCurrentIndex(0);
     }
@@ -93,7 +100,7 @@ void MainWindow::setupTab3()
     if (ui->tab3Root) ui->tab3Root->setStretch(0, 0), ui->tab3Root->setStretch(1, 1);
     if (ui->tab3ImagesLayout) {
         ui->tab3ImagesLayout->setStretch(0, 1);
-        ui->tab3ImagesLayout->setStretch(1, 1);
+        ui->tab3ImagesLayout->setStretch(1, 0);
     }
 }
 
@@ -119,6 +126,44 @@ void MainWindow::setupConnections()
     connect(ui->btnMatchFeatures, &QPushButton::clicked, this, &MainWindow::onMatchFeatures);
     connect(ui->btnClearROI, &QPushButton::clicked, this, &MainWindow::onClearROI);
     connect(ui->btnRemoveLastROI, &QPushButton::clicked, this, &MainWindow::onRemoveLastROI);
+    connect(ui->matchMethodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        const bool haveSelected = (idx == 0 && !p3_featureSSD.empty() && p3_lastComputedMode == 0)
+                               || (idx == 1 && !p3_featureNCC.empty() && p3_lastComputedMode == 1);
+        if (haveSelected) {
+            onMatchingFinished();
+            return;
+        }
+
+        if (roiLabel && siftResult1.valid && !siftResult1.annotated.empty()) {
+            cv::Mat left = siftResult1.annotated.clone();
+            cv::Mat leftBgr;
+            if (left.channels() == 3) leftBgr = left;
+            else cv::cvtColor(left, leftBgr, cv::COLOR_GRAY2BGR);
+
+            cv::Mat right = cv::Mat::zeros(leftBgr.rows, leftBgr.cols, CV_8UC3);
+            if (!img2.empty()) {
+                cv::Mat rightSrc;
+                if (img2.channels() == 3) rightSrc = img2;
+                else cv::cvtColor(img2, rightSrc, cv::COLOR_GRAY2BGR);
+
+                const float sx = static_cast<float>(leftBgr.cols) / std::max(1, rightSrc.cols);
+                const float sy = static_cast<float>(leftBgr.rows) / std::max(1, rightSrc.rows);
+                const float s = std::min(sx, sy);
+                const int fitW = std::max(1, static_cast<int>(std::round(rightSrc.cols * s)));
+                const int fitH = std::max(1, static_cast<int>(std::round(rightSrc.rows * s)));
+                cv::Mat fitted;
+                cv::resize(rightSrc, fitted, cv::Size(fitW, fitH), 0, 0, cv::INTER_AREA);
+                const int offX = (right.cols - fitW) / 2;
+                const int offY = (right.rows - fitH) / 2;
+                fitted.copyTo(right(cv::Rect(offX, offY, fitW, fitH)));
+            }
+
+            cv::Mat combined;
+            cv::hconcat(leftBgr, right, combined);
+            roiLabel->setPixmap(matToPixmap(combined));
+            ui->matchInfo->setText("Mode changed — press Run Match");
+        }
+    });
     connect(&watcherMatch, &QFutureWatcher<void>::finished, this, &MainWindow::onMatchingFinished);
 
     connect(ui->tabWidget, QOverload<int>::of(&QTabWidget::currentChanged), this, [this](int idx) {
@@ -133,7 +178,33 @@ void MainWindow::setupConnections()
             } else if (idx == 2) {
                 if (siftResult1.valid && !siftResult1.annotated.empty()) {
                     if (roiLabel && ui->matchROIInfo) {
-                        roiLabel->setPixmap(matToPixmap(siftResult1.annotated));
+                        cv::Mat left = siftResult1.annotated.clone();
+                        cv::Mat leftBgr;
+                        if (left.channels() == 3) leftBgr = left;
+                        else cv::cvtColor(left, leftBgr, cv::COLOR_GRAY2BGR);
+
+                        cv::Mat right = cv::Mat::zeros(leftBgr.rows, leftBgr.cols, CV_8UC3);
+                        if (!img2.empty()) {
+                            cv::Mat rightSrc;
+                            if (img2.channels() == 3) rightSrc = img2;
+                            else cv::cvtColor(img2, rightSrc, cv::COLOR_GRAY2BGR);
+
+                            const float sx = static_cast<float>(leftBgr.cols) / std::max(1, rightSrc.cols);
+                            const float sy = static_cast<float>(leftBgr.rows) / std::max(1, rightSrc.rows);
+                            const float s = std::min(sx, sy);
+                            const int fitW = std::max(1, static_cast<int>(std::round(rightSrc.cols * s)));
+                            const int fitH = std::max(1, static_cast<int>(std::round(rightSrc.rows * s)));
+                            cv::Mat fitted;
+                            cv::resize(rightSrc, fitted, cv::Size(fitW, fitH), 0, 0, cv::INTER_AREA);
+                            const int offX = (right.cols - fitW) / 2;
+                            const int offY = (right.rows - fitH) / 2;
+                            fitted.copyTo(right(cv::Rect(offX, offY, fitW, fitH)));
+                        }
+
+                        cv::Mat combined;
+                        cv::hconcat(leftBgr, right, combined);
+                        roiLabel->setPixmap(matToPixmap(combined));
+                        roiLabel->clearROI();
                         ui->matchROIInfo->setText("Draw ROI on the feature image (left panel)");
                         if (ui->btnMatchFeatures) {
                             ui->btnMatchFeatures->setEnabled(!img2.empty());

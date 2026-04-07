@@ -111,23 +111,25 @@ void ZoomableImageLabel::updateDisplay()
 {
     if (original_.isNull()) return;
 
-    // Scale the image based on zoom level
-    int scaled_w = static_cast<int>(original_.width()  * zoom_);
-    int scaled_h = static_cast<int>(original_.height() * zoom_);
-    QPixmap scaled = original_.scaled(scaled_w, scaled_h, Qt::KeepAspectRatio,
-                                      Qt::SmoothTransformation);
-
-    // Use fixed container size
     int label_w = std::max(1, width());
     int label_h = std::max(1, height());
 
-    // If zoom is 1.0 (no zoom), just display the full scaled image centered
-    if (zoom_ <= 1.0) {
+    const double fitScaleW = static_cast<double>(label_w) / std::max(1, original_.width());
+    const double fitScaleH = static_cast<double>(label_h) / std::max(1, original_.height());
+    const double fitScale  = std::min(fitScaleW, fitScaleH);
+    const double renderScale = fitScale * zoom_;
+
+    int scaled_w = std::max(1, static_cast<int>(std::round(original_.width() * renderScale)));
+    int scaled_h = std::max(1, static_cast<int>(std::round(original_.height() * renderScale)));
+    QPixmap scaled = original_.scaled(scaled_w, scaled_h, Qt::IgnoreAspectRatio,
+                                      Qt::SmoothTransformation);
+
+    if (scaled_w <= label_w && scaled_h <= label_h) {
+        panX_ = panY_ = 0;
         QLabel::setPixmap(scaled);
         return;
     }
 
-    // Clamp pan offsets so the visible region stays within the scaled image bounds
     int max_pan_x = scaled_w - label_w;
     int max_pan_y = scaled_h - label_h;
     
@@ -139,7 +141,6 @@ void ZoomableImageLabel::updateDisplay()
     if (panY_ < 0)         panY_ = 0;
     if (panY_ > max_pan_y) panY_ = max_pan_y;
 
-    // Extract the visible region from the scaled image
     QRect crop_rect(panX_, panY_, label_w, label_h);
     QPixmap visible = scaled.copy(crop_rect);
     

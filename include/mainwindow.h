@@ -158,6 +158,17 @@ private:
     MatchResult    matchResult;
     float          p3_ratioThresh = 0.80f;
     InteractiveLabel* roiLabel    = nullptr;
+    std::vector<cv::DMatch> p3_ssdMatches;
+    std::vector<cv::DMatch> p3_nccMatches;
+    int p3_lastComputedMode = -1;
+    int p3_ssdInliers = 0;
+    int p3_nccInliers = 0;
+    double p3_ssdTimeMs = 0.0;
+    double p3_nccTimeMs = 0.0;
+    cv::Mat p3_featureSSD;
+    cv::Mat p3_featureNCC;
+    cv::Mat p3_loadedSSD;
+    cv::Mat p3_loadedNCC;
 
     // Async
     QFutureWatcher<void> watcherCorners;

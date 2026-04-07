@@ -2,6 +2,52 @@
   "version": 3,
   "configurePresets": [
     {
+      "name": "VS2022-Debug-NoNinja",
+      "displayName": "VS2022 Debug (No Ninja)",
+      "description": "MSVC + Visual Studio generator to avoid Ninja recompact/restat issues",
+      "inherits": [
+        "Qt",
+        "Qt-Default"
+      ],
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "strategy": "external",
+        "value": "x64"
+      },
+      "binaryDir": "${sourceDir}/out/build/vs2022-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-DQT_QML_DEBUG",
+        "CMAKE_PREFIX_PATH": "D:/QT/6.10.2/msvc2022_64"
+      },
+      "environment": {
+        "QTDIR": "D:/QT/6.10.2/msvc2022_64",
+        "QML_DEBUG_ARGS": "-qmljsdebugger=file:{6c3dc12c-8090-4752-a408-43341d83133f},block"
+      }
+    },
+    {
+      "name": "VS2022-Release-NoNinja",
+      "displayName": "VS2022 Release (No Ninja)",
+      "description": "MSVC + Visual Studio generator release preset without Ninja",
+      "inherits": [
+        "Qt",
+        "Qt-Default"
+      ],
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "strategy": "external",
+        "value": "x64"
+      },
+      "binaryDir": "${sourceDir}/out/build/vs2022-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "D:/QT/6.10.2/msvc2022_64"
+      },
+      "environment": {
+        "QTDIR": "D:/QT/6.10.2/msvc2022_64"
+      }
+    },
+    {
       "name": "Qt-Debug",
       "inherits": "Qt-Default",
       "binaryDir": "${sourceDir}/out/build/debug",
@@ -52,7 +98,7 @@
   ],
   "vendor": {
     "qt-project.org/Presets": {
-      "checksum": "J0kLK4wv0CbZdizH5tu4/Iz/MQA="
+      "checksum": "+dFhOgECdrfYX2ro3U02Tg1a0uI="
     }
   }
 }

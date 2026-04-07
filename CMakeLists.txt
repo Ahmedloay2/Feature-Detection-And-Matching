@@ -1,12 +1,20 @@
 cmake_minimum_required(VERSION 3.14)
 project(FeatureDetectionAndMatching LANGUAGES CXX)
 
+# ── Layout roots (project location organization) ─────────────────────────────
+set(PROJECT_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include")
+set(PROJECT_UI_DIR      "${CMAKE_SOURCE_DIR}/ui")
+set(PROJECT_SRC_DIR     "${CMAKE_SOURCE_DIR}/src")
+set(PROJECT_LEGACY_DIR  "${CMAKE_SOURCE_DIR}/src2")
+
+option(SURFACE_LEGACY_LAYOUT "Show legacy src2 files in IDE filters (not built)" ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOUIC_SEARCH_PATHS "${CMAKE_SOURCE_DIR}/ui")
+set(CMAKE_AUTOUIC_SEARCH_PATHS "${PROJECT_UI_DIR}")
 set(CMAKE_AUTOMOC_COMPILER_PREDEFINES ON)
 
 # ── OpenCV ────────────────────────────────────────────────────────────────────
@@ -22,60 +30,88 @@ set(OpenCV_DLL
 find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent)
 
 # ── Sources ───────────────────────────────────────────────────────────────────
+set(UI_FILES
+    "${PROJECT_UI_DIR}/mainwindow.ui"
+)
+
+set(CORE_FILES
+    "${PROJECT_SRC_DIR}/main.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_setup.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_shared.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_tab1.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_tab2.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_tab3.cpp"
+    "${PROJECT_INCLUDE_DIR}/mainwindow.h"
+)
+
+set(WIDGET_FILES
+    "${PROJECT_SRC_DIR}/interactive_label.cpp"
+    "${PROJECT_INCLUDE_DIR}/widgets/interactive_label.h"
+    "${PROJECT_SRC_DIR}/zoomable_image.cpp"
+    "${PROJECT_INCLUDE_DIR}/widgets/zoomable_image.hpp"
+)
+
+set(SIFT_FILES
+    "${PROJECT_SRC_DIR}/SiftCore.cpp"
+    "${PROJECT_SRC_DIR}/sift/sift_extract.cpp"
+    "${PROJECT_SRC_DIR}/sift/sift_pyramid.cpp"
+    "${PROJECT_SRC_DIR}/sift/sift_extrema_orientation.cpp"
+    "${PROJECT_SRC_DIR}/sift/sift_descriptor.cpp"
+    "${PROJECT_SRC_DIR}/Timer.cpp"
+)
+
+set(HARRIS_FILES
+    "${PROJECT_SRC_DIR}/processors/harris_main.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/gradient.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/grayscale.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/harris_response.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/shi_tomasi.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/strcutre_tensor.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/threshold.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/nms.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/gaussian.cpp"
+)
+
+set(IO_UTIL_FILES
+    "${PROJECT_SRC_DIR}/utils/utils.cpp"
+    "${PROJECT_SRC_DIR}/io/image_handler.cpp"
+)
+
 add_executable(${PROJECT_NAME}
+    ${UI_FILES}
+    ${CORE_FILES}
+    ${WIDGET_FILES}
+    ${SIFT_FILES}
+    ${HARRIS_FILES}
+    ${IO_UTIL_FILES}
+)
 
-    # Qt UI (AUTOUIC → ui_mainwindow.h)
-    "ui/mainwindow.ui"
-
-    # Entry
-    "src/main.cpp"
-
-    # Main window
-    "src/mainwindow.cpp"
-    "src/mainwindow_setup.cpp"
-    "src/mainwindow_shared.cpp"
-    "src/mainwindow_tab1.cpp"
-    "src/mainwindow_tab2.cpp"
-    "src/mainwindow_tab3.cpp"
-    "include/mainwindow.h"
-
-    # Widgets (moved to widgets/ sub-path)
-    "src/interactive_label.cpp"
-    "include/widgets/interactive_label.h"
-    "src/zoomable_image.cpp"
-    "include/widgets/zoomable_image.hpp"
-
-    # SIFT
-    "src/SiftCore.cpp"
-    "src/sift/sift_extract.cpp"
-    "src/sift/sift_pyramid.cpp"
-    "src/sift/sift_extrema_orientation.cpp"
-    "src/sift/sift_descriptor.cpp"
-    "src/Timer.cpp"
-
-    # Harris pipeline
-    "src/processors/harris_main.cpp"
-    "src/processors/harris/gradient.cpp"
-    "src/processors/harris/grayscale.cpp"
-    "src/processors/harris/harris_response.cpp"
-    "src/processors/harris/shi_tomasi.cpp"
-    "src/processors/harris/strcutre_tensor.cpp"
-    "src/processors/harris/threshold.cpp"
-    "src/processors/harris/nms.cpp"
-    "src/processors/harris/gaussian.cpp"
-
-    # Utilities / IO
-    "src/utils/utils.cpp"
-    "src/io/image_handler.cpp"
-
+source_group(TREE ${CMAKE_SOURCE_DIR} FILES
+    ${UI_FILES}
+    ${CORE_FILES}
+    ${WIDGET_FILES}
+    ${SIFT_FILES}
+    ${HARRIS_FILES}
+    ${IO_UTIL_FILES}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
+    ${PROJECT_INCLUDE_DIR}
     ${OpenCV_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}/FeatureDetectionAndMatching_autogen/include
 )
+
+if(SURFACE_LEGACY_LAYOUT)
+    file(GLOB_RECURSE LEGACY_LAYOUT_FILES CONFIGURE_DEPENDS
+        "${PROJECT_LEGACY_DIR}/*.cpp"
+        "${PROJECT_LEGACY_DIR}/*.h"
+        "${PROJECT_LEGACY_DIR}/*.hpp"
+        "${CMAKE_SOURCE_DIR}/feature_detection.ui"
+    )
+    source_group(TREE ${CMAKE_SOURCE_DIR} PREFIX "legacy" FILES ${LEGACY_LAYOUT_FILES})
+endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OpenCV_LIB}

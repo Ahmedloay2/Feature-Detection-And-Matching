@@ -129,13 +129,9 @@ QLabel#appSubtitle { color: #93a4bf; font-size: 11px; }</string>
            <layout class="QVBoxLayout" name="tab3ImgFeature">
             <item><widget class="QLabel" name="labelMatchFeature"><property name="text"><string>FEATURE IMAGE (PROJECTION TARGET)</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
             <item>
-             <widget class="QScrollArea" name="matchScrollFeature">
-              <property name="widgetResizable"><bool>true</bool></property>
-              <widget class="InteractiveLabel" name="matchDisplayFeature">
-               <property name="geometry"><rect><x>0</x><y>0</y><width>640</width><height>640</height></rect></property>
-               <property name="text"><string>Run SIFT first</string></property>
-               <property name="alignment"><set>Qt::AlignCenter</set></property>
-              </widget>
+             <widget class="InteractiveLabel" name="matchDisplayFeature">
+              <property name="text"><string>Run SIFT first</string></property>
+              <property name="alignment"><set>Qt::AlignCenter</set></property>
              </widget>
             </item>
            </layout>

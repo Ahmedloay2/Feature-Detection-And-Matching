@@ -51,6 +51,6 @@ private:
     int     containerH_ = 300;
 
     static constexpr double STEP    = 1.15;
-    static constexpr double MIN_Z   = 0.05;
+    static constexpr double MIN_Z   = 1.0;
     static constexpr double MAX_Z   = 8.0;
 };
