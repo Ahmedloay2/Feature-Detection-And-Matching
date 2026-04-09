@@ -3,7 +3,7 @@
  * @brief Implements the complete SIFT feature extraction pipeline coordination.
  */
 
-#include "SiftCore.hpp"
+#include "core/SiftCore.hpp"
 
 #include <opencv2/imgproc.hpp>
 

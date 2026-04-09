@@ -156,12 +156,12 @@ QLabel#appSubtitle { color: #93a4bf; font-size: 11px; }</string>
   <customwidget>
    <class>ZoomableImageLabel</class>
    <extends>QLabel</extends>
-   <header>widgets/zoomable_image.hpp</header>
+   <header>ui/zoomable_image.hpp</header>
   </customwidget>
   <customwidget>
    <class>InteractiveLabel</class>
    <extends>QLabel</extends>
-   <header>widgets/interactive_label.h</header>
+   <header>ui/interactive_label.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

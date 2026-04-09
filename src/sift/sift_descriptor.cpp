@@ -3,7 +3,7 @@
  * @brief Implements 128-dimensional descriptor generation from local orientation histograms.
  */
 
-#include "SiftCore.hpp"
+#include "core/SiftCore.hpp"
 
 #include <omp.h>
 

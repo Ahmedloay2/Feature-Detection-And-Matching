@@ -3,7 +3,7 @@
  * @brief Implements DoG extrema detection, filtering, and dominant orientation assignment.
  */
 
-#include "SiftCore.hpp"
+#include "core/SiftCore.hpp"
 
 #include <omp.h>
 

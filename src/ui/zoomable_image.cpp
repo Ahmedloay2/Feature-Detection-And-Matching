@@ -3,7 +3,7 @@
  * @brief Implements smooth zoom scaling, pan offset handling, and display updates.
  */
 
-#include "widgets/zoomable_image.hpp"
+#include "ui/zoomable_image.hpp"
 #include <algorithm>
 #include <QApplication>
 #include <QtMath>

@@ -10,7 +10,7 @@
  * - Configuring button enabled/disabled states based on loaded images
  */
 
-#include "mainwindow.h"
+#include "ui/mainwindow.h"
 #include "ui_mainwindow.h"
 
 #include <QApplication>

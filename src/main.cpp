@@ -4,7 +4,7 @@
  */
 
 #include <QApplication>
-#include "mainwindow.h"
+#include "ui/mainwindow.h"
 
 /// @brief Application entry point.
 /// 

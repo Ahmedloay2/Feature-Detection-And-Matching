@@ -3,7 +3,7 @@
  * @brief Implements MainWindow initialization, tab setup, and async task management.
  */
 
-#include "mainwindow.h"
+#include "ui/mainwindow.h"
 #include "ui_mainwindow.h"
 
 /// Construct the main window and initialize all UI components.

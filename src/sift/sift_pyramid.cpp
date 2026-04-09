@@ -3,7 +3,7 @@
  * @brief Implements Gaussian and Difference-of-Gaussians pyramid construction for scale-space.
  */
 
-#include "SiftCore.hpp"
+#include "core/SiftCore.hpp"
 
 #include <opencv2/imgproc.hpp>
 #include <omp.h>

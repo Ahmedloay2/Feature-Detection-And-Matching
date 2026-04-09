@@ -12,7 +12,7 @@
 #include <string>
 #include <mutex>
 
-#include "widgets/interactive_label.h"
+#include "ui/interactive_label.h"
 #include "model/image.hpp"
 
 QT_BEGIN_NAMESPACE

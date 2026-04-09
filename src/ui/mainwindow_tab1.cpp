@@ -11,7 +11,7 @@
  * - Per-stage timing measurement and status bar updates
  */
 
-#include "mainwindow.h"
+#include "ui/mainwindow.h"
 #include "ui_mainwindow.h"
 
 #include "processors/harris_main.hpp"

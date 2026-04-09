@@ -10,7 +10,7 @@
  * - Image caching and reuse across tabs
  */
 
-#include "mainwindow.h"
+#include "ui/mainwindow.h"
 #include "ui_mainwindow.h"
 
 #include "io/image_handler.hpp"

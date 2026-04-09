@@ -12,10 +12,10 @@
  * - Interactive ROI management: add/undo/clear region selections
  */
 
-#include "mainwindow.h"
+#include "ui/mainwindow.h"
 #include "ui_mainwindow.h"
 
-#include "SiftCore.hpp"
+#include "core/SiftCore.hpp"
 
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
@@ -531,7 +531,18 @@ void MainWindow::onMatchingFinished()
     if (roiLabel)
     {
         if (!matchResult.composite.empty())
+        {
             roiLabel->setPixmap(matToPixmap(matchResult.composite));
+            // The composite already has ROI boxes baked into its pixels.
+            // Clear the InteractiveLabel overlay to avoid drawing them twice
+            // (baked image + overlay = double box with a slight scale offset).
+            // Arm the flag so the very next mouse-press wipes everything and
+            // starts fresh, while still allowing multiple ROIs to accumulate
+            // before the next Run Match.
+            roiLabel->clearROI();
+            roiLabel->setResetOnNextDraw(true);
+            ui->matchROIInfo->setText("Match done — draw a new ROI to run again.");
+        }
         else
             roiLabel->setText("Matching failed — check console.");
     }

@@ -11,10 +11,10 @@
  * - SIFT pipeline orchestration (Gaussian pyramid → extrema → descriptor computation)
  */
 
-#include "mainwindow.h"
+#include "ui/mainwindow.h"
 #include "ui_mainwindow.h"
 
-#include "SiftCore.hpp"
+#include "core/SiftCore.hpp"
 
 #include <opencv2/features2d.hpp>
 

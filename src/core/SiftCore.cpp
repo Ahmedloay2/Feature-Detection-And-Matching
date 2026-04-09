@@ -3,7 +3,7 @@
  * @brief Implements SIFT core functionality and algorithm coordination.
  */
 
-#include "SiftCore.hpp"
+#include "core/SiftCore.hpp"
 
 // Kept intentionally minimal.
 // SiftProcessor implementation is split across src/sift/*.cpp to keep each

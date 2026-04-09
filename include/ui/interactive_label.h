@@ -23,7 +23,7 @@ class InteractiveLabel : public QLabel
 public:
     /// @brief Construct an interactive label widget.
     /// @param parent Parent widget (typically the matching image panel)
-    explicit InteractiveLabel(QWidget* parent = nullptr);
+    explicit InteractiveLabel(QWidget *parent = nullptr);
 
     /// @brief Get all confirmed ROI rectangles, scaled to pixmap pixel coordinates.
     /// @return Vector of QRect in pixmap space; empty if no ROIs or pixmap not set
@@ -35,19 +35,25 @@ public:
     /// @brief Remove the most recently added ROI (undo operation).
     void removeLastROI();
 
+    /// @brief When set to true, the very next mouse-press will clear all existing
+    ///        ROIs before starting the new one.  Automatically resets to false after
+    ///        the clear fires, so subsequent draws accumulate normally again.
+    void setResetOnNextDraw(bool reset) { m_resetOnNextDraw = reset; }
+
 signals:
-    void roiSelected();   ///< Emitted when a new ROI is confirmed.
+    void roiSelected(); ///< Emitted when a new ROI is confirmed.
 
 protected:
-    void mousePressEvent(QMouseEvent*   event) override;
-    void mouseMoveEvent(QMouseEvent*    event) override;
-    void mouseReleaseEvent(QMouseEvent* event) override;
-    void paintEvent(QPaintEvent*        event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 
 private:
-    bool               isDrawing   = false;
-    QPoint             startPoint;
-    QPoint             endPoint;
-    QRect              currentROI;
-    std::vector<QRect> rois;   ///< Confirmed ROIs in widget coordinates.
+    bool isDrawing = false;
+    bool m_resetOnNextDraw = false; ///< If true, clear ROIs on next mouse-press
+    QPoint startPoint;
+    QPoint endPoint;
+    QRect currentROI;
+    std::vector<QRect> rois; ///< Confirmed ROIs in widget coordinates.
 };
