@@ -1,364 +1,676 @@
 #include "mainwindow.h"
+#include "ui_mainwindow.h"
 #include "SiftCore.hpp"
-#include "Timer.hpp"
 #include "io/image_handler.hpp"
 
+#include <opencv2/imgcodecs.hpp>  // cv::imread
+#include <opencv2/imgproc.hpp>    // cv::cvtColor, cv::resize
+#include <opencv2/features2d.hpp> // cv::drawKeypoints, cv::DrawMatchesFlags
+#include <opencv2/calib3d.hpp>    // cv::findHomography, cv::RANSAC
+
 #include <QFileDialog>
-#include <QMessageBox>
 #include <QApplication>
+#include <QResizeEvent>
+#include <omp.h>
+#include <mutex>
+#include <cmath>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
+// ── Constructor ───────────────────────────────────────────────────────────────
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent), ui(new Ui::MainWindow)
 {
-    QWidget *centralWidget = new QWidget(this);
-    setCentralWidget(centralWidget);
+    ui->setupUi(this);
 
-    QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+    // Transparent overlay — created AFTER setupUi so it raises above children
+    m_overlay = new MatchOverlay(this);
+    m_overlay->lines = &matchLines;
+    m_overlay->setGeometry(rect());
+    m_overlay->raise();
 
-    // Top Panel
-    QHBoxLayout *buttonsLayout = new QHBoxLayout();
-    btnLoadImage1 = new QPushButton("Load Full Scene (Image 1)", this);
-    btnLoadImage2 = new QPushButton("Load Target (Image 2)", this);
-    btnClearROIs = new QPushButton("Clear Targets", this);
-    btnRunPipeline = new QPushButton("Run Custom SIFT & Match", this);
+    // Debounce timer
+    debounceTimer = new QTimer(this);
+    debounceTimer->setSingleShot(true);
+    debounceTimer->setInterval(500);
+    connect(debounceTimer, &QTimer::timeout, this, &MainWindow::onDebounceTimeout);
 
-    buttonsLayout->addWidget(btnLoadImage1);
-    buttonsLayout->addWidget(btnLoadImage2);
-    buttonsLayout->addWidget(btnClearROIs);
-    buttonsLayout->addWidget(btnRunPipeline);
+    // Async watchers
+    connect(&watcherSift1, &QFutureWatcher<void>::finished,
+            this, &MainWindow::onImg1SiftDone);
+    connect(&watcherMatch, &QFutureWatcher<MatchResult>::finished,
+            this, &MainWindow::onMatchDone);
 
-    mainLayout->addLayout(buttonsLayout);
+    // Buttons
+    connect(ui->btnLoadFullScene, &QPushButton::clicked, this, &MainWindow::onLoadFullScene);
+    connect(ui->btnLoadTargetTemplate, &QPushButton::clicked, this, &MainWindow::onLoadTargetTemplate);
+    connect(ui->btnRunMatch, &QPushButton::clicked, this, &MainWindow::onExecuteMatch);
+    connect(ui->btnUndo, &QPushButton::clicked, this, &MainWindow::onUndoRoi);
+    connect(ui->btnRedo, &QPushButton::clicked, this, &MainWindow::onRedoRoi);
+    connect(ui->btnReset, &QPushButton::clicked, this, &MainWindow::onResetRoi);
 
-    // Middle Panel: 3 identically spaced squashed panels
-    QHBoxLayout *imagesLayout = new QHBoxLayout();
+    // Sliders <-> spins
+    connect(ui->sliderRatio, &QSlider::valueChanged,
+            this, &MainWindow::onSiftRatioSlider);
+    connect(ui->spinRatio, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &MainWindow::onSiftRatioSpin);
+    connect(ui->sliderContrast, &QSlider::valueChanged,
+            this, &MainWindow::onSiftContrastSlider);
+    connect(ui->spinContrast, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &MainWindow::onSiftContrastSpin);
 
-    imageScrollArea1 = new QScrollArea(this);
-    lblImage1 = new QLabel(this);
-    lblImage1->setAlignment(Qt::AlignCenter);
-    lblImage1->setScaledContents(true);
-    imageScrollArea1->setWidget(lblImage1);
-    imageScrollArea1->setWidgetResizable(true);
+    // Algorithm combo box
+    connect(ui->comboMatchAlgo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onMatchAlgoChanged);
 
-    imageScrollArea2 = new QScrollArea(this);
-    lblImage2 = new InteractiveLabel(this);
-    lblImage2->setAlignment(Qt::AlignCenter);
-    lblImage2->setScaledContents(true);
-    imageScrollArea2->setWidget(lblImage2);
-    imageScrollArea2->setWidgetResizable(true);
+    // ROI signals
+    connect(ui->lblTemplate, &InteractiveLabel::roiSelected,
+            this, [this]()
+            {
+                matchLines.clear();
+                m_overlay->update();
+                if (!img1.empty() && !img2.empty())
+                    ui->btnRunMatch->setEnabled(true); });
+    connect(ui->lblTemplate, &InteractiveLabel::roiHistoryChanged,
+            this, &MainWindow::onRoiHistoryChanged);
 
-    imageScrollArea3 = new QScrollArea(this);
-    lblOutputImage = new QLabel("Result Array", this);
-    lblOutputImage->setAlignment(Qt::AlignCenter);
-    lblOutputImage->setScaledContents(true);
-    imageScrollArea3->setWidget(lblOutputImage);
-    imageScrollArea3->setWidgetResizable(true);
-
-    imagesLayout->addWidget(imageScrollArea1, 1);
-    imagesLayout->addWidget(imageScrollArea2, 1);
-    imagesLayout->addWidget(imageScrollArea3, 1);
-
-    mainLayout->addLayout(imagesLayout, 1);
-
-    // Bottom Panel
-    lblStatus = new QLabel("Execution Timing: Ready. Load Images.", this);
-    lblStatus->setStyleSheet("QLabel { color: #81C784; font-weight: bold; font-size: 14px; padding: 10px; }");
-    mainLayout->addWidget(lblStatus);
-
-    resize(1400, 700);
-    setWindowTitle("Custom Multi-Threaded SIFT Extractor");
-
-    connect(btnLoadImage1, &QPushButton::clicked, this, &MainWindow::onLoadImage1);
-    connect(btnLoadImage2, &QPushButton::clicked, this, &MainWindow::onLoadImage2);
-    connect(btnClearROIs, &QPushButton::clicked, this, &MainWindow::onClearROIs);
-    connect(btnRunPipeline, &QPushButton::clicked, this, &MainWindow::onRunPipeline);
-    connect(lblImage2, &InteractiveLabel::roiSelected, this, &MainWindow::onROISelected);
-    connect(&watcher1, &QFutureWatcher<void>::finished, this, &MainWindow::onImage1SiftFinished);
-    connect(&watcher2, &QFutureWatcher<void>::finished, this, &MainWindow::onImage2SiftFinished);
-    connect(&watcherMatch, &QFutureWatcher<void>::finished, this, &MainWindow::onSiftExtractionFinished);
-
-    btnRunPipeline->setEnabled(false);
+    ui->lblStatus->setText("Ready. Load full scene and target template to begin.");
 }
 
-MainWindow::~MainWindow() {}
+MainWindow::~MainWindow() { delete ui; }
 
-void MainWindow::downscaleImageIfNeeded(cv::Mat &img)
+// ── Resize — keep overlay covering the full window ────────────────────────────
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    if (m_overlay)
+    {
+        m_overlay->setGeometry(rect());
+        m_overlay->raise();
+    }
+}
+
+// ── Algorithm combo ───────────────────────────────────────────────────────────
+
+void MainWindow::onMatchAlgoChanged(int index)
+{
+    currentMatchAlgo = (index == 1) ? MatchAlgo::NCC : MatchAlgo::SSD;
+    // Clear stale lines — user must re-run to see new algorithm's results
+    matchLines.clear();
+    m_overlay->update();
+}
+
+// ── Parameter sync ────────────────────────────────────────────────────────────
+
+void MainWindow::onSiftRatioSlider(int value)
+{
+    currentRatioThresh = value / 100.0f;
+    ui->spinRatio->blockSignals(true);
+    ui->spinRatio->setValue(currentRatioThresh);
+    ui->spinRatio->blockSignals(false);
+    matchLines.clear();
+    m_overlay->update();
+}
+
+void MainWindow::onSiftRatioSpin(double value)
+{
+    currentRatioThresh = (float)value;
+    ui->sliderRatio->blockSignals(true);
+    ui->sliderRatio->setValue(qRound(value * 100));
+    ui->sliderRatio->blockSignals(false);
+    matchLines.clear();
+    m_overlay->update();
+}
+
+void MainWindow::onSiftContrastSlider(int value)
+{
+    currentContrastThresh = value / 1000.0f;
+    ui->spinContrast->blockSignals(true);
+    ui->spinContrast->setValue(currentContrastThresh);
+    ui->spinContrast->blockSignals(false);
+    if (!img1.empty())
+    {
+        matchLines.clear();
+        m_overlay->update();
+        debounceTimer->start();
+    }
+}
+
+void MainWindow::onSiftContrastSpin(double value)
+{
+    currentContrastThresh = (float)value;
+    ui->sliderContrast->blockSignals(true);
+    ui->sliderContrast->setValue(qRound(value * 1000));
+    ui->sliderContrast->blockSignals(false);
+    if (!img1.empty())
+    {
+        matchLines.clear();
+        m_overlay->update();
+        debounceTimer->start();
+    }
+}
+
+// ── Debounce ──────────────────────────────────────────────────────────────────
+
+void MainWindow::onDebounceTimeout()
+{
+    if (!img1.empty())
+        runSiftOnImg1Async();
+}
+
+// ── Load images ───────────────────────────────────────────────────────────────
+
+void MainWindow::downscaleIfNeeded(cv::Mat &img)
 {
     const int MAX_DIM = 1024;
     if (img.cols > MAX_DIM || img.rows > MAX_DIM)
     {
-        float scale = std::min((float)MAX_DIM / img.cols, (float)MAX_DIM / img.rows);
-        cv::resize(img, img, cv::Size(), scale, scale, cv::INTER_AREA);
+        float s = std::min((float)MAX_DIM / img.cols, (float)MAX_DIM / img.rows);
+        cv::resize(img, img, cv::Size(), s, s, cv::INTER_AREA);
     }
 }
 
-void MainWindow::onLoadImage1()
+void MainWindow::onLoadFullScene()
 {
-    QString fileName = QFileDialog::getOpenFileName(this, "Open Image 1", "", "Images (*.png *.jpg *.jpeg *.bmp)");
-    if (!fileName.isEmpty())
-    {
-        try {
-            img1 = loadImage(fileName.toStdString()).mat;
-        } catch (const std::exception& e) {
-            QMessageBox::critical(this, "Error loading image", e.what());
-            return;
-        }
-        downscaleImageIfNeeded(img1);
-
-        cv::Mat rgb;
-        cv::cvtColor(img1, rgb, cv::COLOR_BGR2RGB);
-        QImage qimg((const unsigned char *)rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
-        lblImage1->setPixmap(QPixmap::fromImage(qimg));
-
-        lblStatus->setText(QString("Image 1 loaded (%1x%2). Extracting features automagically...").arg(img1.cols).arg(img1.rows));
-
-        btnLoadImage1->setEnabled(false);
-        btnLoadImage2->setEnabled(false);
-        btnRunPipeline->setEnabled(false);
-        QApplication::processEvents();
-
-        QFuture<void> future = QtConcurrent::run([this]()
-                                                 {
-            try {
-                kp1.clear();
-                desc1.release();
-                cv_assign::SiftProcessor::extractFeatures(img1, kp1, desc1);
-            } catch (...) {} });
-
-        watcher1.setFuture(future);
-    }
-}
-
-void MainWindow::onImage1SiftFinished()
-{
-    if (!kp1.empty())
-    {
-        cv::Mat displayImg;
-        cv::drawKeypoints(img1, kp1, displayImg, cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-        cv::cvtColor(displayImg, displayImg, cv::COLOR_BGR2RGB);
-        QImage qimg((const unsigned char *)displayImg.data, displayImg.cols, displayImg.rows, displayImg.step, QImage::Format_RGB888);
-        lblImage1->setPixmap(QPixmap::fromImage(qimg));
-
-        lblStatus->setText(QString("Image 1 auto-extracted %1 keypoints. Ready to load Image 2.").arg(kp1.size()));
-    }
-    else
-    {
-        lblStatus->setText("Image 1 extraction failed or found no keypoints.");
-    }
-    btnLoadImage1->setEnabled(true);
-    btnLoadImage2->setEnabled(true);
-    if (!img1.empty() && !img2.empty() && !roiRects.empty())
-        btnRunPipeline->setEnabled(true);
-}
-
-void MainWindow::onLoadImage2()
-{
-    QString fileName = QFileDialog::getOpenFileName(this, "Open Image 2", "", "Images (*.png *.jpg *.jpeg *.bmp)");
-    if (!fileName.isEmpty())
-    {
-        try {
-            img2 = loadImage(fileName.toStdString()).mat;
-        } catch (const std::exception& e) {
-            QMessageBox::critical(this, "Error loading image", e.what());
-            return;
-        }
-        downscaleImageIfNeeded(img2);
-
-        cv::Mat rgb;
-        cv::cvtColor(img2, rgb, cv::COLOR_BGR2RGB);
-        QImage qimg((const unsigned char *)rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
-        lblImage2->setPixmap(QPixmap::fromImage(qimg));
-        lblImage2->clearROI();
-        roiRects.clear();
-
-        lblStatus->setText(QString("Image 2 loaded (%1x%2). Extracting features automagically...").arg(img2.cols).arg(img2.rows));
-
-        btnLoadImage1->setEnabled(false);
-        btnLoadImage2->setEnabled(false);
-        btnRunPipeline->setEnabled(false);
-        QApplication::processEvents();
-
-        QFuture<void> future = QtConcurrent::run([this]()
-                                                 {
-            try {
-                kp2.clear();
-                desc2.release();
-                cv_assign::SiftProcessor::extractFeatures(img2, kp2, desc2);
-            } catch (...) {} });
-
-        watcher2.setFuture(future);
-    }
-}
-
-void MainWindow::onImage2SiftFinished()
-{
-    // Show the CLEAN image on lblImage2 (no keypoint circles)
-    // so the user can draw ROIs on the original image clearly.
-    cv::Mat rgb2;
-    cv::cvtColor(img2, rgb2, cv::COLOR_BGR2RGB);
-    QImage qimg2((const unsigned char *)rgb2.data, rgb2.cols, rgb2.rows, rgb2.step, QImage::Format_RGB888);
-    lblImage2->setPixmap(QPixmap::fromImage(qimg2));
-
-    if (!kp2.empty())
-        lblStatus->setText(QString("Image 2 auto-extracted %1 keypoints (circles hidden — draw your ROI boxes).").arg(kp2.size()));
-    else
-        lblStatus->setText("Image 2 extraction failed or found no keypoints.");
-
-    btnLoadImage1->setEnabled(true);
-    btnLoadImage2->setEnabled(true);
-    if (!img1.empty() && !img2.empty() && !roiRects.empty())
-        btnRunPipeline->setEnabled(true);
-}
-
-void MainWindow::onROISelected()
-{
-    auto qrois = lblImage2->getSelectedROIs();
-    roiRects.clear();
-    for (auto r : qrois)
-    {
-        roiRects.push_back(cv::Rect(r.x(), r.y(), r.width(), r.height()));
-    }
-    lblStatus->setText(QString("%1 Targets mapped to subset ROI. Ready for matching.").arg(roiRects.size()));
-    if (!img1.empty() && !img2.empty() && !roiRects.empty())
-    {
-        btnRunPipeline->setEnabled(true);
-    }
-}
-
-void MainWindow::onClearROIs()
-{
-    lblImage2->clearROI();
-    roiRects.clear();
-    lblStatus->setText("Targets cleared. Please drag bounding box ROIs.");
-    btnRunPipeline->setEnabled(false);
-}
-
-void MainWindow::onRunPipeline()
-{
-    if (img1.empty() || img2.empty() || roiRects.empty())
+    QString fn = QFileDialog::getOpenFileName(
+        this, "Open Full Scene", "", "Images (*.png *.jpg *.jpeg *.bmp)");
+    if (fn.isEmpty())
         return;
 
-    btnRunPipeline->setText("Processing... Please wait.");
-    btnRunPipeline->setEnabled(false);
-    btnLoadImage1->setEnabled(false);
-    btnLoadImage2->setEnabled(false);
-    QApplication::processEvents();
+    img1 = cv::imread(fn.toStdString());
+    if (img1.empty())
+    {
+        ui->lblStatus->setText("Failed to load image.");
+        return;
+    }
+    downscaleIfNeeded(img1);
 
-    QFuture<void> future = QtConcurrent::run([this]()
-                                             {
-        try {
-            roiKps.clear();
-            roiDescs.clear();
-            for (size_t i = 0; i < roiRects.size(); ++i) {
-                std::vector<cv::KeyPoint> localKps;
-                cv::Mat localDesc;
-                const cv::Rect& roi = roiRects[i];
-                
-                for (size_t j = 0; j < kp2.size(); ++j) {
-                    if (roi.contains(kp2[j].pt)) {
-                        localKps.push_back(kp2[j]);
-                        localDesc.push_back(desc2.row(j));
-                    }
-                }
-                
-                roiKps.push_back(localKps);
-                if (localDesc.empty()) {
-                    roiDescs.push_back(cv::Mat());
-                } else {
-                    roiDescs.push_back(localDesc.clone());
-                }
-            }
-        } catch (...) {
-        } });
+    cv::Mat rgb;
+    cv::cvtColor(img1, rgb, cv::COLOR_BGR2RGB);
+    ui->lblOutputImage->setPixmap(
+        QPixmap::fromImage(
+            QImage(rgb.data, rgb.cols, rgb.rows, (int)rgb.step,
+                   QImage::Format_RGB888)
+                .copy()));
 
-    watcherMatch.setFuture(future);
+    ui->lblStatus->setText(
+        QString("Full scene loaded (%1x%2). Extracting SIFT features...")
+            .arg(img1.cols)
+            .arg(img1.rows));
+
+    matchLines.clear();
+    m_overlay->update();
+    runSiftOnImg1Async();
 }
 
-void MainWindow::onSiftExtractionFinished()
+void MainWindow::onLoadTargetTemplate()
 {
-    try
+    QString fn = QFileDialog::getOpenFileName(
+        this, "Open Target Template", "", "Images (*.png *.jpg *.jpeg *.bmp)");
+    if (fn.isEmpty())
+        return;
+
+    img2 = cv::imread(fn.toStdString());
+    if (img2.empty())
     {
-        if (desc1.empty() || kp1.empty() || desc1.type() != CV_32F || desc1.rows < 2)
+        ui->lblStatus->setText("Failed to load image.");
+        return;
+    }
+    downscaleIfNeeded(img2);
+
+    cv::Mat rgb;
+    cv::cvtColor(img2, rgb, cv::COLOR_BGR2RGB);
+    ui->lblTemplate->setPixmap(
+        QPixmap::fromImage(
+            QImage(rgb.data, rgb.cols, rgb.rows, (int)rgb.step,
+                   QImage::Format_RGB888)
+                .copy()));
+
+    ui->lblTemplate->clearROI();
+    matchLines.clear();
+    m_overlay->update();
+
+    ui->lblStatus->setText(
+        QString("Target loaded (%1x%2). Draw ROI box(es), then click Run Matches.")
+            .arg(img2.cols)
+            .arg(img2.rows));
+
+    ui->btnRunMatch->setEnabled(
+        !img1.empty() && !ui->lblTemplate->getSelectedROIs().empty());
+}
+
+// ── Async SIFT on img1 ────────────────────────────────────────────────────────
+
+void MainWindow::runSiftOnImg1Async()
+{
+    if (watcherSift1.isRunning())
+    {
+        sift1RerunPending = true;
+        return;
+    }
+    sift1RerunPending = false;
+
+    float ct = currentContrastThresh;
+    cv::Mat imgCopy = img1.clone();
+
+    pendingKp1 = std::make_shared<std::vector<cv::KeyPoint>>();
+    pendingDesc1 = std::make_shared<cv::Mat>();
+
+    auto kpRef = pendingKp1;
+    auto descRef = pendingDesc1;
+
+    watcherSift1.setFuture(QtConcurrent::run(
+        [imgCopy, ct, kpRef, descRef]()
+        { cv_assign::SiftProcessor::extractFeatures(imgCopy, *kpRef, *descRef, ct); }));
+}
+
+void MainWindow::onImg1SiftDone()
+{
+    if (sift1RerunPending)
+    {
+        runSiftOnImg1Async();
+        return;
+    }
+
+    kp1 = *pendingKp1;
+    desc1 = *pendingDesc1;
+    displayImg1WithKeypoints();
+
+    ui->lblStatus->setText(
+        QString("Scene: %1 keypoints detected (contrast = %2).")
+            .arg(kp1.size())
+            .arg(currentContrastThresh, 0, 'f', 3));
+}
+
+void MainWindow::displayImg1WithKeypoints()
+{
+    if (img1.empty() || kp1.empty())
+        return;
+
+    cv::Mat vis;
+    cv::drawKeypoints(img1, kp1, vis, cv::Scalar::all(-1),
+                      cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::cvtColor(vis, vis, cv::COLOR_BGR2RGB);
+    ui->lblOutputImage->setPixmap(
+        QPixmap::fromImage(
+            QImage(vis.data, vis.cols, vis.rows,
+                   (int)vis.step, QImage::Format_RGB888)
+                .copy()));
+}
+
+// ── ROI helpers ───────────────────────────────────────────────────────────────
+
+std::vector<cv::Rect> MainWindow::getAllRoisInImg2Space() const
+{
+    auto qrois = ui->lblTemplate->getSelectedROIs();
+    std::vector<cv::Rect> result;
+    result.reserve(qrois.size());
+    for (const auto &r : qrois)
+    {
+        int x = std::max(0, r.x());
+        int y = std::max(0, r.y());
+        int w = std::min(r.width(), img2.cols - x);
+        int h = std::min(r.height(), img2.rows - y);
+        if (w > 0 && h > 0)
+            result.push_back(cv::Rect(x, y, w, h));
+    }
+    return result;
+}
+
+// ── Matching ──────────────────────────────────────────────────────────────────
+//
+//  NCC for SIFT descriptors
+//  ─────────────────────────
+//  SiftCore already L2-normalizes every descriptor twice (with 0.2 cap).
+//  For two unit vectors a and b:
+//
+//      NCC(a, b) = dot(a, b) / (|a| * |b|) = dot(a, b)
+//
+//  dot(a,b) ∈ [-1, 1].  A value close to +1 means high similarity.
+//
+//  To re-use the same Lowe ratio logic (lower = better) we convert to a
+//  distance:
+//
+//      dist_NCC = 1 - dot(a, b)        range [0, 2]
+//
+//  Then the ratio test is identical to SSD:
+//      dist_best < ratio * dist_second
+//
+//  This keeps the Lowe ratio slider meaningful for both algorithms.
+
+void MainWindow::onExecuteMatch()
+{
+    if (img1.empty() || img2.empty())
+        return;
+    if (kp1.empty() || desc1.empty())
+    {
+        ui->lblStatus->setText("Re-run SIFT first.");
+        return;
+    }
+    if (watcherMatch.isRunning())
+        return;
+
+    auto allRois = getAllRoisInImg2Space();
+    if (allRois.empty())
+    {
+        ui->lblStatus->setText("Draw at least one ROI box on the target first.");
+        return;
+    }
+
+    ui->btnRunMatch->setEnabled(false);
+    ui->btnLoadFullScene->setEnabled(false);
+    ui->btnLoadTargetTemplate->setEnabled(false);
+
+    QString algoName = (currentMatchAlgo == MatchAlgo::NCC) ? "NCC" : "SSD";
+    ui->lblStatus->setText(
+        QString("Running %1 matching on %2 ROI box(es)...")
+            .arg(algoName)
+            .arg(allRois.size()));
+
+    matchLines.clear();
+    m_overlay->update();
+
+    // Per-ROI color palette
+    static const std::vector<QColor> palette = {
+        QColor(255, 80, 80, 200),
+        QColor(80, 200, 255, 200),
+        QColor(100, 255, 100, 200),
+        QColor(255, 210, 50, 200),
+        QColor(200, 100, 255, 200),
+        QColor(255, 140, 0, 200),
+    };
+    pendingRoiColors.clear();
+    for (size_t i = 0; i < allRois.size(); ++i)
+        pendingRoiColors.push_back(palette[i % palette.size()]);
+
+    // Thread-safe snapshots
+    cv::Mat d1copy = desc1.clone();
+    std::vector<cv::KeyPoint> kp1copy = kp1;
+    cv::Mat img2copy = img2.clone();
+    float ratio = currentRatioThresh;
+    float ct = currentContrastThresh;
+    MatchAlgo algo = currentMatchAlgo;
+
+    watcherMatch.setFuture(QtConcurrent::run(
+        [allRois, img2copy, d1copy, kp1copy, ratio, ct, algo]() -> MatchResult
         {
-            throw cv::Exception(cv::Error::StsError, "Image 1 Extrema outputs returned zero variables or rows < 2.", "", __FILE__, __LINE__);
-        }
+            MatchResult combined;
+            combined.valid = true;
+            int kp2Offset = 0;
 
-        int totalMatches = 0;
-
-        std::vector<cv::Scalar> colors = {
-            cv::Scalar(0, 0, 255),
-            cv::Scalar(0, 255, 0),
-            cv::Scalar(255, 0, 0),
-            cv::Scalar(0, 255, 255),
-            cv::Scalar(255, 0, 255)};
-
-        cv::BFMatcher matcher(cv::NORM_L2);
-
-        cv::Mat resultImg;
-        // Concatenate img2 (with ROIs) and img1 (scene) side-by-side to draw arrows between them
-        int maxRows = std::max(img1.rows, img2.rows);
-        int totalCols = img1.cols + img2.cols;
-        resultImg = cv::Mat::zeros(maxRows, totalCols, CV_8UC3);
-
-        cv::Mat outImg2 = resultImg(cv::Rect(0, 0, img2.cols, img2.rows));
-        img2.copyTo(outImg2);
-        cv::Mat outImg1 = resultImg(cv::Rect(img2.cols, 0, img1.cols, img1.rows));
-        img1.copyTo(outImg1);
-
-        for (size_t index = 0; index < roiRects.size(); ++index)
-        {
-            const auto &roi_kp = roiKps[index];
-            const auto &roi_desc = roiDescs[index];
-            const auto &roi = roiRects[index];
-
-            if (roi_desc.empty() || roi_kp.empty() || roi_desc.type() != CV_32F || roi_desc.rows < 2)
-                continue;
-
-            std::vector<std::vector<cv::DMatch>> knn_matches;
-            matcher.knnMatch(roi_desc, desc1, knn_matches, 2);
-
-            std::vector<cv::DMatch> good_matches;
-            const float ratio_thresh = 0.80f;
-            for (size_t i = 0; i < knn_matches.size(); i++)
+            for (int roiIdx = 0; roiIdx < (int)allRois.size(); ++roiIdx)
             {
-                if (knn_matches[i].size() > 1 && knn_matches[i][0].distance < ratio_thresh * knn_matches[i][1].distance)
+                const cv::Rect &roi = allRois[roiIdx];
+                cv::Mat roiImg = img2copy(roi).clone();
+
+                // ── Extract SIFT features on this ROI ────────────────────────
+                std::vector<cv::KeyPoint> kp2roi;
+                cv::Mat desc2;
+                cv_assign::SiftProcessor::extractFeatures(roiImg, kp2roi, desc2, ct);
+
+                if (desc2.empty() || desc2.rows < 2 || d1copy.empty())
                 {
-                    good_matches.push_back(knn_matches[i][0]);
+                    kp2Offset += (int)kp2roi.size();
+                    continue;
                 }
+
+                // Shift keypoints into full img2 space
+                for (auto &kp : kp2roi)
+                {
+                    kp.pt.x += roi.x;
+                    kp.pt.y += roi.y;
+                    combined.kp2.push_back(kp);
+                }
+
+                const int N = desc2.rows;
+                const int M = d1copy.rows;
+
+                std::vector<cv::DMatch> raw;
+                raw.reserve(N);
+                std::mutex mtx;
+
+                if (algo == MatchAlgo::SSD)
+                {
+                // ── SSD matching ─────────────────────────────────────────
+                // dist = sqrt( sum_i (a_i - b_i)^2 )
+                // Lower distance = better match.
+                // Lowe ratio test: dist_best < ratio * dist_second
+
+#pragma omp parallel for schedule(dynamic, 32)
+                    for (int i = 0; i < N; ++i)
+                    {
+                        const float *q = desc2.ptr<float>(i);
+                        float best = 1e30f, second = 1e30f;
+                        int bestIdx = -1, secondIdx = -1;
+
+                        for (int j = 0; j < M; ++j)
+                        {
+                            const float *t = d1copy.ptr<float>(j);
+                            float ssd = 0.f;
+
+                            for (int d = 0; d < 128; d += 8)
+                            {
+                                float d0 = q[d + 0] - t[d + 0], d1a = q[d + 1] - t[d + 1],
+                                      d2 = q[d + 2] - t[d + 2], d3 = q[d + 3] - t[d + 3],
+                                      d4 = q[d + 4] - t[d + 4], d5 = q[d + 5] - t[d + 5],
+                                      d6 = q[d + 6] - t[d + 6], d7 = q[d + 7] - t[d + 7];
+                                ssd += d0 * d0 + d1a * d1a + d2 * d2 + d3 * d3 + d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7;
+                            }
+
+                            if (ssd < best)
+                            {
+                                second = best;
+                                secondIdx = bestIdx;
+                                best = ssd;
+                                bestIdx = j;
+                            }
+                            else if (ssd < second)
+                            {
+                                second = ssd;
+                                secondIdx = j;
+                            }
+                        }
+
+                        if (bestIdx >= 0 && secondIdx >= 0 &&
+                            std::sqrt(best) < ratio * std::sqrt(second))
+                        {
+                            cv::DMatch dm(kp2Offset + i, bestIdx, std::sqrt(best));
+                            dm.imgIdx = roiIdx;
+                            std::lock_guard<std::mutex> lk(mtx);
+                            raw.push_back(dm);
+                        }
+                    }
+                }
+                else // MatchAlgo::NCC
+                {
+                // ── NCC matching ─────────────────────────────────────────
+                //
+                // SIFT descriptors are L2-normalized (|a|=|b|=1) so:
+                //   NCC(a,b) = dot(a,b)   in [-1, 1]
+                //
+                // Convert to a distance so Lowe's ratio test applies
+                // exactly the same way as SSD:
+                //   dist_NCC = 1 - dot(a,b)   in [0, 2]
+                //
+                // A perfect match gives dist_NCC = 0 (dot = 1).
+                // An orthogonal descriptor gives dist_NCC = 1 (dot = 0).
+                // An opposite descriptor gives dist_NCC = 2 (dot = -1).
+
+#pragma omp parallel for schedule(dynamic, 32)
+                    for (int i = 0; i < N; ++i)
+                    {
+                        const float *q = desc2.ptr<float>(i);
+                        float best = 1e30f, second = 1e30f; // distances
+                        int bestIdx = -1, secondIdx = -1;
+
+                        for (int j = 0; j < M; ++j)
+                        {
+                            const float *t = d1copy.ptr<float>(j);
+
+                            // Compute dot product (128-dim, unrolled by 8)
+                            float dot = 0.f;
+                            for (int d = 0; d < 128; d += 8)
+                            {
+                                dot += q[d + 0] * t[d + 0] + q[d + 1] * t[d + 1] + q[d + 2] * t[d + 2] + q[d + 3] * t[d + 3] + q[d + 4] * t[d + 4] + q[d + 5] * t[d + 5] + q[d + 6] * t[d + 6] + q[d + 7] * t[d + 7];
+                            }
+
+                            // Convert similarity to distance
+                            float dist = 1.0f - dot; // in [0, 2]
+
+                            if (dist < best)
+                            {
+                                second = best;
+                                secondIdx = bestIdx;
+                                best = dist;
+                                bestIdx = j;
+                            }
+                            else if (dist < second)
+                            {
+                                second = dist;
+                                secondIdx = j;
+                            }
+                        }
+
+                        // Lowe ratio test: identical form to SSD
+                        if (bestIdx >= 0 && secondIdx >= 0 &&
+                            best < ratio * second)
+                        {
+                            cv::DMatch dm(kp2Offset + i, bestIdx, best);
+                            dm.imgIdx = roiIdx;
+                            std::lock_guard<std::mutex> lk(mtx);
+                            raw.push_back(dm);
+                        }
+                    }
+                }
+
+                // ── RANSAC homography filtering (same for both algos) ─────────
+                if ((int)raw.size() >= 4)
+                {
+                    std::vector<cv::Point2f> src, dst;
+                    src.reserve(raw.size());
+                    dst.reserve(raw.size());
+                    for (const auto &m : raw)
+                    {
+                        src.push_back(combined.kp2[m.queryIdx].pt);
+                        dst.push_back(kp1copy[m.trainIdx].pt);
+                    }
+                    std::vector<uchar> inliers;
+                    cv::findHomography(src, dst, cv::RANSAC, 3.0, inliers);
+                    for (size_t k = 0; k < inliers.size(); ++k)
+                        if (inliers[k])
+                            combined.matches.push_back(raw[k]);
+                }
+                else
+                {
+                    for (const auto &m : raw)
+                        combined.matches.push_back(m);
+                }
+
+                kp2Offset += (int)kp2roi.size();
             }
 
-            totalMatches += good_matches.size();
-            cv::Scalar color = colors[index % colors.size()];
+            return combined;
+        }));
+}
 
-            cv::rectangle(resultImg, roi, color, 3);
+// ── Match done -> build match lines ──────────────────────────────────────────
 
-            for (const auto &match : good_matches)
-            {
-                cv::Point2f pt1 = roi_kp[match.queryIdx].pt;
-                cv::Point2f pt2 = kp1[match.trainIdx].pt + cv::Point2f(img2.cols, 0);
-                cv::arrowedLine(resultImg, pt1, pt2, color, 2, cv::LINE_AA, 0, 0.1);
-            }
-        }
+void MainWindow::onMatchDone()
+{
+    ui->btnRunMatch->setEnabled(true);
+    ui->btnLoadFullScene->setEnabled(true);
+    ui->btnLoadTargetTemplate->setEnabled(true);
 
-        lblStatus->setText(QString("Processed %1 ROIs and Image 1. Total Matched pairs: %2")
-                               .arg(roiRects.size())
-                               .arg(totalMatches));
-
-        cv::cvtColor(resultImg, resultImg, cv::COLOR_BGR2RGB);
-        QImage qimg((const unsigned char *)resultImg.data, resultImg.cols, resultImg.rows, resultImg.step, QImage::Format_RGB888);
-        lblOutputImage->setPixmap(QPixmap::fromImage(qimg));
-    }
-    catch (const cv::Exception &e)
+    MatchResult res = watcherMatch.result();
+    if (!res.valid || res.matches.empty())
     {
-        lblStatus->setText("Error: No matches found or matrices empty. Extraction pipeline failed limit.");
-        lblOutputImage->setText("Error: No matches found.");
-    }
-    catch (...)
-    {
-        lblStatus->setText("Error: Extraction pipeline crashed. Catch invoked.");
-        lblOutputImage->setText("Error: Pipeline crash.");
+        ui->lblStatus->setText(
+            "No matches found. Try lowering the contrast threshold or raising the ratio.");
+        return;
     }
 
-    btnRunPipeline->setText("Run Custom SIFT & Match");
-    btnRunPipeline->setEnabled(true);
-    btnLoadImage1->setEnabled(true);
-    btnLoadImage2->setEnabled(true);
+    auto toLabel = [](const cv::Point2f &pt, const QLabel *lbl,
+                      int imgW, int imgH) -> QPoint
+    {
+        float sx = (float)lbl->width() / (float)imgW;
+        float sy = (float)lbl->height() / (float)imgH;
+        return QPoint(qRound(pt.x * sx), qRound(pt.y * sy));
+    };
+
+    matchLines.clear();
+    matchLines.reserve(res.matches.size());
+
+    for (const auto &m : res.matches)
+    {
+        QPoint lblSrc = toLabel(res.kp2[m.queryIdx].pt,
+                                ui->lblTemplate, img2.cols, img2.rows);
+        QPoint lblDst = toLabel(kp1[m.trainIdx].pt,
+                                ui->lblOutputImage, img1.cols, img1.rows);
+
+        QPointF overlaySrc = ui->lblTemplate->mapTo(this, lblSrc);
+        QPointF overlayDst = ui->lblOutputImage->mapTo(this, lblDst);
+
+        int roiIdx = m.imgIdx;
+        QColor col = (roiIdx >= 0 && roiIdx < (int)pendingRoiColors.size())
+                         ? pendingRoiColors[roiIdx]
+                         : QColor(50, 220, 120, 200);
+
+        matchLines.push_back({overlaySrc, overlayDst, col});
+    }
+
+    m_overlay->raise();
+    m_overlay->update();
+
+    // Status bar with algo name + per-ROI breakdown
+    QString algoName = (currentMatchAlgo == MatchAlgo::NCC) ? "NCC" : "SSD";
+    int numRois = (int)pendingRoiColors.size();
+    QString roiDetail;
+    for (int r = 0; r < numRois; ++r)
+    {
+        int cnt = 0;
+        for (const auto &m : res.matches)
+            if (m.imgIdx == r)
+                ++cnt;
+        if (numRois > 1)
+            roiDetail += QString(" | ROI %1: %2").arg(r + 1).arg(cnt);
+    }
+
+    ui->lblStatus->setText(
+        QString("Matched %1 inlier pair(s).  [%2]  Ratio = %3  |  Contrast = %4%5")
+            .arg(res.matches.size())
+            .arg(algoName)
+            .arg(currentRatioThresh, 0, 'f', 2)
+            .arg(currentContrastThresh, 0, 'f', 3)
+            .arg(roiDetail));
+}
+
+// ── ROI history controls ──────────────────────────────────────────────────────
+
+void MainWindow::onUndoRoi()
+{
+    ui->lblTemplate->undoRoi();
+    matchLines.clear();
+    m_overlay->update();
+}
+
+void MainWindow::onRedoRoi()
+{
+    ui->lblTemplate->redoRoi();
+    matchLines.clear();
+    m_overlay->update();
+}
+
+void MainWindow::onResetRoi()
+{
+    ui->lblTemplate->clearROI();
+    matchLines.clear();
+    pendingRoiColors.clear();
+    m_overlay->update();
+    ui->btnRunMatch->setEnabled(false);
+}
+
+void MainWindow::onRoiHistoryChanged()
+{
+    ui->btnUndo->setEnabled(ui->lblTemplate->canUndo());
+    ui->btnRedo->setEnabled(ui->lblTemplate->canRedo());
 }

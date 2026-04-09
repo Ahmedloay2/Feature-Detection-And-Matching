@@ -44,6 +44,10 @@
 #include "io/image_handler.hpp"
 #include "processors/harris_main.hpp"
 #include "processors/harris/harris_response.hpp"
+#include "processors/harris/grayscale.hpp"
+#include "processors/harris/gradient.hpp"
+#include "processors/harris/strcutre_tensor.hpp"
+#include "processors/harris/threshold.hpp"
 
 // =============================================================================
 //  Harris Comparison Configuration
@@ -188,25 +192,25 @@ QWidget *makeStatsPanel(const std::string names[4], const int counts[4], const d
 // ── Replaced OpenCV Harris ───────────────────────────────────────────────────
 std::vector<cv::Point> runReplacedHarris(Image &imgObj, double &timeMs)
 {
-    cv::Mat responseNorm;
     auto t0 = Clock::now();
 
-    // 1. Compute response using our custom implementation
+    // 1. Run the entire pipeline natively using Custom implementations
+    toGrayscale(imgObj);
+    computeGradient(imgObj);
+    applyStructureTensor(imgObj);
     computeHarrisResponse(imgObj, K_HARRIS);
 
-    // 2. Fetch CV_32FC1 raw gradient response
-    cv::Mat response = imgObj.get("harris_response");
+    // 2. Thresholding + Custom Normalization to 0-255 scaling
+    applyCornerThreshold(imgObj, "harris_response", 120.f);
 
-    // 3. Normalize into appropriate [0, 255] float scaling (previously done via OpenCV)
-    cv::normalize(response, responseNorm, 0, 255, cv::NORM_MINMAX, CV_32F);
-
-    // 4. Thresholding exactly as OpenCV did
+    // 3. Extract the corners from the normalized threshold step directly
     std::vector<cv::Point> corners;
+    const cv::Mat &responseNorm = imgObj.get("harris_response_threshold");
     for (int i = 0; i < responseNorm.rows; ++i)
     {
         for (int j = 0; j < responseNorm.cols; ++j)
         {
-            if (responseNorm.at<float>(i, j) > 120.f)
+            if (responseNorm.at<float>(i, j) > 0.f)
             {
                 corners.push_back(cv::Point(j, i));
             }
@@ -261,12 +265,11 @@ private:
             return;
         }
 
-        cv::Mat gray8U;
-        cv::cvtColor(src, gray8U, cv::COLOR_BGR2GRAY);
-        cv::setNumThreads(cv::getNumberOfCPUs());
-
         // ── Detector 1 & 2: Custom Harris & Shi-Tomasi
         Image img1 = loadImage(IMAGE_PATH); // Load fresh image object for processors
+
+        toGrayscale(img1);
+        cv::Mat gray8U = img1.get("grayscale").clone();
 
         auto h0 = Clock::now();
         auto harrisCorners = applyHarris(img1, K_HARRIS, "harris", THRESHOLD, HALF_WINDOW);

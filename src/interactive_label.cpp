@@ -1,46 +1,70 @@
 #include "interactive_label.h"
 
 InteractiveLabel::InteractiveLabel(QWidget *parent)
-    : QLabel(parent), isDrawing(false)
+    : QLabel(parent)
 {
     setMouseTracking(true);
 }
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
 std::vector<QRect> InteractiveLabel::getSelectedROIs() const
 {
-    std::vector<QRect> mappedROIs;
+    std::vector<QRect> mapped;
     if (pixmap().isNull() || rois.empty())
-        return mappedROIs;
+        return mapped;
 
-    // Qt scale factor mapping logic translating from squashed display back to real Pixmap dims:
-    float ratioX = (float)pixmap().width() / this->width();
-    float ratioY = (float)pixmap().height() / this->height();
+    float rx = (float)pixmap().width() / (float)this->width();
+    float ry = (float)pixmap().height() / (float)this->height();
 
     for (const auto &r : rois)
     {
-        int mappedX = r.x() * ratioX;
-        int mappedY = r.y() * ratioY;
-        int mappedW = r.width() * ratioX;
-        int mappedH = r.height() * ratioY;
-
-        QRect mappedROI(mappedX, mappedY, mappedW, mappedH);
-
-        // Clamp to pixmap bounds safely
-        mappedROIs.push_back(mappedROI.intersected(pixmap().rect()));
+        QRect m(qRound(r.x() * rx), qRound(r.y() * ry),
+                qRound(r.width() * rx), qRound(r.height() * ry));
+        mapped.push_back(m.intersected(pixmap().rect()));
     }
-    return mappedROIs;
+    return mapped;
 }
 
 void InteractiveLabel::clearROI()
 {
-    currentROI = QRect();
+    undoStack.clear();
+    redoStack.clear();
     rois.clear();
+    currentROI = QRect();
     update();
+    emit roiHistoryChanged();
 }
+
+void InteractiveLabel::undoRoi()
+{
+    if (undoStack.empty())
+        return;
+    redoStack.push_back(rois); // current → redo
+    rois = undoStack.back();   // restore previous
+    undoStack.pop_back();
+    update();
+    emit roiSelected();
+    emit roiHistoryChanged();
+}
+
+void InteractiveLabel::redoRoi()
+{
+    if (redoStack.empty())
+        return;
+    undoStack.push_back(rois); // current → undo
+    rois = redoStack.back();
+    redoStack.pop_back();
+    update();
+    emit roiSelected();
+    emit roiHistoryChanged();
+}
+
+// ── Mouse events ──────────────────────────────────────────────────────────────
 
 void InteractiveLabel::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton && !this->pixmap().isNull())
+    if (event->button() == Qt::LeftButton && !pixmap().isNull())
     {
         isDrawing = true;
         startPoint = event->pos();
@@ -72,8 +96,11 @@ void InteractiveLabel::mouseReleaseEvent(QMouseEvent *event)
 
         if (currentROI.width() > 5 && currentROI.height() > 5)
         {
+            undoStack.push_back(rois); // save state before change
+            redoStack.clear();         // new action clears redo history
             rois.push_back(currentROI);
             emit roiSelected();
+            emit roiHistoryChanged();
         }
         currentROI = QRect();
         update();
@@ -81,22 +108,24 @@ void InteractiveLabel::mouseReleaseEvent(QMouseEvent *event)
     QLabel::mouseReleaseEvent(event);
 }
 
+// ── Paint ─────────────────────────────────────────────────────────────────────
+
 void InteractiveLabel::paintEvent(QPaintEvent *event)
 {
     QLabel::paintEvent(event);
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
 
-    QPainter painter(this);
     for (const auto &r : rois)
     {
-        painter.setPen(QPen(Qt::green, 2, Qt::SolidLine));
-        painter.setBrush(QBrush(QColor(0, 255, 0, 50)));
-        painter.drawRect(r);
+        p.setPen(QPen(QColor(0, 220, 100), 2));
+        p.setBrush(QBrush(QColor(0, 220, 100, 40)));
+        p.drawRect(r);
     }
-
     if (!currentROI.isEmpty())
     {
-        painter.setPen(QPen(Qt::red, 2, Qt::SolidLine));
-        painter.setBrush(QBrush(QColor(255, 0, 0, 50)));
-        painter.drawRect(currentROI);
+        p.setPen(QPen(Qt::red, 2, Qt::DashLine));
+        p.setBrush(QBrush(QColor(255, 60, 60, 40)));
+        p.drawRect(currentROI);
     }
 }
