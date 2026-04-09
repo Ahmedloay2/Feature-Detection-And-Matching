@@ -260,82 +260,108 @@ The `Image` struct's cache ensures that:
 ```
 src/
 ├── main.cpp                        Application entry point; creates MainWindow
-├── mainwindow.cpp                  Window lifecycle, destructor, cleanup
-├── mainwindow_setup.cpp            Signal/slot connections, UI initialization
-├── mainwindow_shared.cpp           Image loading, mat↔pixmap conversion helpers
-├── mainwindow_tab1.cpp             Tab 1: corner detection logic & visualization
-├── mainwindow_tab2.cpp             Tab 2: SIFT extraction logic & visualization
-├── mainwindow_tab3.cpp             Tab 3: matching UI & result rendering
+├── mainwindow.ui                   Qt Designer UI definition (inline location)
+│
+├── ui/
+│   ├── mainwindow.cpp              Window lifecycle, destructor, cleanup
+│   ├── mainwindow_setup.cpp        Signal/slot connections, UI initialization
+│   ├── mainwindow_shared.cpp       Image loading, mat↔pixmap conversion helpers
+│   ├── mainwindow_tab1.cpp         Tab 1: corner detection logic & visualization
+│   ├── mainwindow_tab2.cpp         Tab 2: SIFT extraction logic & visualization
+│   ├── mainwindow_tab3.cpp         Tab 3: matching UI & result rendering
+│   ├── interactive_label.cpp       QLabel subclass for ROI drawing (mouse events)
+│   └── zoomable_image.cpp          QLabel subclass for image zoom/pan (scroll + drag)
 │
 ├── processors/
-│   ├── harris/
-│   │   ├── grayscale.cpp           BGR → float32 grayscale (ITU-R BT.601)
-│   │   ├── gaussian.cpp            Separable 5-tap Gaussian smoothing
-│   │   ├── gradient.cpp            Sobel gradients (Gx, Gy) → squared products
-│   │   ├── strcutre_tensor.cpp     Smooth squared gradients → structure tensor M
-│   │   ├── harris_response.cpp     Compute R = det(M) − k·trace²(M)
-│   │   ├── shi_tomasi.cpp          Compute R = min eigenvalue of M
-│   │   ├── threshold.cpp           Normalize & threshold response; extract corners
-│   │   └── nms.cpp                 Non-maximum suppression over local window
-│   └── harris_main.cpp             Orchestration: runs all 8 stages in sequence
+│   ├── harris_main.cpp             Orchestration: runs all 8 stages in sequence
+│   └── harris/
+│       ├── grayscale.cpp           BGR → float32 grayscale (ITU-R BT.601)
+│       ├── gaussian.cpp            Separable 5-tap Gaussian smoothing
+│       ├── gradient.cpp            Sobel gradients (Gx, Gy) → squared products
+│       ├── strcutre_tensor.cpp     Smooth squared gradients → structure tensor M
+│       ├── harris_response.cpp     Compute R = det(M) − k·trace²(M)
+│       ├── shi_tomasi.cpp          Compute R = min eigenvalue of M
+│       ├── threshold.cpp           Normalize & threshold response; extract corners
+│       └── nms.cpp                 Non-maximum suppression over local window
 │
 ├── sift/
+│   ├── sift_extract.cpp            Top-level pipeline orchestration (extractFeatures)
 │   ├── sift_pyramid.cpp            Build Gaussian & DoG pyramids
 │   ├── sift_extrema_orientation.cpp 3-D extrema detection in DoG; orientation assignment
-│   ├── sift_descriptor.cpp         Compute 4×4×8 = 128-D descriptors
-│   └── sift_extract.cpp            Top-level pipeline orchestration (extractFeatures)
+│   └── sift_descriptor.cpp         Compute 4×4×8 = 128-D descriptors
 │
-├── SiftCore.cpp                    Translation unit; defines SiftProcessor methods
-├── Timer.cpp                       High-resolution timer implementation
-│
-├── io/
-│   └── image_handler.cpp           cv::imread wrapper → Image struct
+├── core/
+│   └── SiftCore.cpp                Defines SiftProcessor methods
 │
 ├── utils/
+│   ├── Timer.cpp                   High-resolution timer implementation
 │   └── utils.cpp                   Border-reflection helper; explicit template instantiations
 │
-└── widgets/
-    ├── interactive_label.cpp       QLabel subclass for ROI drawing (mouse events)
-    └── zoomable_image.cpp          QLabel subclass for image zoom/pan (scroll + drag)
+└── io/
+    └── image_handler.cpp           cv::imread wrapper → Image struct
 
 include/
-├── mainwindow.h                    Declares MainWindow class & signal handlers
-├── model/image.hpp                 Image struct: source mat + named cache (store/get/has)
-├── processors/harris_main.hpp      Declares applyHarris() entry point
-├── processors/harris/*.hpp         Headers for each Harris stage
-├── SiftCore.hpp                    Declares cv_assign::SiftProcessor class
-├── Timer.hpp                       Declares ExecutionTimer utility
-├── io/image_handler.hpp            Declares loadImage() helper
-├── utils/utils.hpp                 Declares convolveH/convolveV & reflectIndex
-├── utils/utils_impl.hpp            Template implementations (included by utils.hpp)
-└── widgets/
-    ├── interactive_label.h         Declares InteractiveLabel class
-    └── zoomable_image.hpp          Declares ZoomableLabel class
+├── ui/
+│   ├── mainwindow.h                Declares MainWindow class & signal handlers
+│   ├── interactive_label.h         Declares InteractiveLabel class
+│   └── zoomable_image.hpp          Declares ZoomableLabel class
+│
+├── model/
+│   └── image.hpp                   Image struct: source mat + named cache (store/get/has)
+│
+├── processors/
+│   ├── harris_main.hpp             Declares applyHarris() entry point
+│   └── harris/
+│       ├── grayscale.hpp           Grayscale conversion declarations
+│       ├── gaussian.hpp            Gaussian smoothing declarations
+│       ├── gradient.hpp            Gradient computation declarations
+│       ├── strcutre_tensor.hpp     Structure tensor declarations
+│       ├── harris_response.hpp     Harris response declarations
+│       ├── shi_tomasi.hpp          Shi-Tomasi response declarations
+│       ├── threshold.hpp           Thresholding declarations
+│       └── nms.hpp                 NMS declarations
+│
+├── core/
+│   └── SiftCore.hpp                Declares SiftProcessor class
+│
+├── utils/
+│   ├── Timer.hpp                   Declares ExecutionTimer utility
+│   ├── utils.hpp                   Declares convolveH/convolveV & reflectIndex
+│   └── utils_impl.hpp              Template implementations (included by utils.hpp)
+│
+└── io/
+    └── image_handler.hpp           Declares loadImage() helper
 
 ui/
 └── mainwindow.ui                   Qt Designer UI definition file
 ```
 
-### File Count & Scope
-
-- **Total implementation files:** 26 (.cpp)
-- **Total header files:** 18 (.hpp/.h)
-- **Total lines of code:** ~5000+ (algorithms) + ~2000+ (UI) = ~7000+ LOC
-- **Documentation:** All files include Doxygen-style docstrings and inline comments
-
----
-
 ## Dependencies
 
 | Dependency | Version | Purpose | Used For |
 |---|---|---|---|
-| **Qt** | 6.x | GUI framework | MainWindow, tabs, image display, async threading |
-| **OpenCV** | 4.x | Matrix library & I/O | cv::Mat, cv::imread, cv::parallel_for_, drawing utilities |
+| **C++** | C++17 standard | Language features | std::string_view, structured bindings, ranges |
+| **Qt** | 6.x | GUI framework | MainWindow, tabs, image display, `QtConcurrent` async threading |
+| **CMake** | 3.14+ | Build system | Project configuration and compilation |
+| **OpenCV** | 4.x (4.12.0+) | Matrix library & I/O | `cv::Mat`, `cv::imread`, `cv::parallel_for_`, drawing utilities |
 | **OpenMP** | 4.5+ | Parallelism | Multi-threaded SIFT detection and descriptor computation |
-| **CMake** | 3.16+ | Build system | Project configuration and compilation |
-| **C++ Standard** | C++17 | Language features | std::string_view, std::optional, ranges, structured bindings |
+| **MSYS2 / GCC** | GCC 11+ | C++ compiler | MinGW Makefiles generator for building |
 
-> **Note:** OpenCV's high-level API functions (`cv::SIFT`, `cv::cornerHarris`, `cv::goodFeaturesToTrack`, `cv::BFMatcher`) are intentionally NOT used. All algorithms are custom implementations.
+### Build Requirements
+
+- **Windows:** Visual Studio 2022 Community (MSVC) or MSYS2 (GCC)
+- **Qt6:** Pre-built binaries at `D:/QT/6.10.2/msvc2022_64` (configure as needed)
+- **OpenCV:** Compiled library at `D:/opencv/build` with shared libraries (`.dll` format)
+- **Compiler Toolchain:** MinGW Makefiles or Visual Studio generator
+- **Python:** Optional, for build utilities
+
+### Runtime Dependencies
+
+DLLs copied to executable directory during post-build:
+- `opencv_world4120d.dll` (Debug) or `opencv_world4120.dll` (Release)
+- Qt6 platform plugin and core libraries (deployed by `windeployqt`)
+
+> **Note:** OpenCV's high-level API functions (`cv::SIFT`, `cv::cornerHarris`, `cv::goodFeaturesToTrack`, `cv::BFMatcher`) are **intentionally NOT used**. Every algorithm is a custom implementation.
 
 ---
 
