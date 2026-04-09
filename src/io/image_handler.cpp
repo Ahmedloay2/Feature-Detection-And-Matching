@@ -1,6 +1,6 @@
 /**
  * @file image_handler.cpp
- * @brief Implementation of image loading functionality.
+ * @brief Implements image file loading, validation, and error handling.
  */
 
 #include "../../include/model/image.hpp"
@@ -8,16 +8,11 @@
 #include <opencv2/imgcodecs.hpp>
 #include <stdexcept>
 
-/**
- * @brief Load an image from the specified file path.
- *
- * Uses OpenCV's imread to load the image in BGR color format (IMREAD_COLOR).
- * Validates that the image was loaded successfully before storing in Image object.
- *
- * @param path File path to the image (absolute or relative)
- * @return Image object with loaded mat in BGR format (CV_8UC3)
- * @throws std::runtime_error if the image cannot be loaded or file doesn't exist
- */
+/// Load an image from disk and wrap it in an Image container.
+///
+/// This function serves as the entry point for all image I/O in the application.
+/// It handles file validation, format detection (automatic via OpenCV), and error
+/// reporting. The image is always loaded in BGR color space (3 channels, 8-bit unsigned).
 Image loadImage(const std::string& path) {
     // Attempt to load the image in BGR color format
     cv::Mat mat = cv::imread(path, cv::IMREAD_COLOR);

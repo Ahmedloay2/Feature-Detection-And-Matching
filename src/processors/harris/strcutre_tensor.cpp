@@ -1,6 +1,16 @@
+/**
+ * @file strcutre_tensor.cpp
+ * @brief Implements structure tensor accumulation (Ixx, Iyy, Ixy) and windowed smoothing.
+ */
+
 #include <model/image.hpp>
 #include "../include/processors/harris/strcutre_tensor.hpp"
 #include <utils/utils.hpp>
+
+/// Computes and smooths the structure tensor (also called moment matrix or autocorrelation matrix).
+/// For each pixel, accumulates the squared gradients: Ix²=Gx*Gx, Iy²=Gy*Gy, IxIy=Gx*Gy.
+/// Then applies separable Gaussian smoothing with 5-tap kernel [1,4,6,4,1]/16.
+/// The smoothing window size is 5x5, creating a local neighborhood summarized in M.
 void applyStructureTensor(Image& img) {
 
 	if (!img.has("gradient_xx") || !img.has("gradient_yy") || !img.has("gradient_xy"))

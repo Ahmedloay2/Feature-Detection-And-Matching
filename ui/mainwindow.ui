@@ -1,0 +1,169 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1500</width>
+    <height>1000</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Vision Lab - Feature Detection &amp; Matching</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow, QWidget { background: #0b1020; color: #d7deea; font-family: "Segoe UI"; font-size: 12px; }
+QTabWidget::pane { border: 1px solid #22304f; background: #0f1526; }
+QTabBar::tab { background: #151c31; color: #8ea0be; border: 1px solid #22304f; padding: 10px 18px; }
+QTabBar::tab:selected { color: #7dd3fc; border-color: #3b82f6; }
+QPushButton { background: #1a2440; color: #dce6f7; border: 1px solid #2f3f66; border-radius: 8px; padding: 7px 12px; }
+QPushButton#btnLoadImage1, QPushButton#btnLoadImage2 { background: #0f766e; border-color: #14b8a6; }
+QPushButton#btnDetectCorners, QPushButton#btnRunSift, QPushButton#btnMatchFeatures { background: #2563eb; border: none; }
+QLabel#cornerDisplayOriginal, QLabel#cornerDisplayResult, QLabel#siftDisplayOriginal, QLabel#siftDisplayCorners, QLabel#siftDisplayFeatures, QLabel#matchDisplayLoaded, QLabel#matchDisplayFeature { background: #080d18; border: 1px solid #22304f; border-radius: 10px; qproperty-alignment: AlignCenter; color: #67758f; min-width: 240px; min-height: 240px; }
+QLabel#cornerStatsHarris, QLabel#cornerStatsShiTomasi, QLabel#siftInfo, QLabel#matchInfo, QLabel#matchROIInfo { background: #0f172a; border: 1px solid #22304f; border-radius: 8px; padding: 6px 10px; color: #a6b4ca; }
+QLabel#appTitle { font-size: 22px; font-weight: 800; letter-spacing: 3px; color: #7dd3fc; }
+QLabel#appSubtitle { color: #93a4bf; font-size: 11px; }</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="rootLayout">
+    <property name="leftMargin"><number>12</number></property>
+    <property name="topMargin"><number>12</number></property>
+    <property name="rightMargin"><number>12</number></property>
+    <property name="bottomMargin"><number>12</number></property>
+    <item>
+     <layout class="QHBoxLayout" name="headerLayout">
+      <item>
+       <layout class="QVBoxLayout" name="headerTextLayout">
+        <item><widget class="QLabel" name="appTitle"><property name="text"><string>Feature Detection And Matching</string></property></widget></item>
+        <item><widget class="QLabel" name="appSubtitle"><property name="text"><string>Corner detection, SIFT extraction, and feature matching in one workflow</string></property></widget></item>
+       </layout>
+      </item>
+      <item><spacer name="headerSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+      <item><widget class="QPushButton" name="btnLoadImage1"><property name="text"><string>Load Image 1</string></property></widget></item>
+      <item><widget class="QPushButton" name="btnLoadImage2"><property name="text"><string>Load Image 2</string></property></widget></item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QTabWidget" name="tabWidget">
+      <widget class="QWidget" name="tabCorners">
+       <attribute name="title"><string>  Corner Detection  </string></attribute>
+       <layout class="QVBoxLayout" name="tab1Root">
+        <item>
+         <layout class="QGridLayout" name="tab1ParamsGrid">
+          <item row="0" column="0"><widget class="QLabel" name="labelCornerMode"><property name="text"><string>Mode</string></property></widget></item>
+          <item row="0" column="1"><widget class="QComboBox" name="cornerModeCombo"><item><property name="text"><string>Harris</string></property></item><item><property name="text"><string>Shi-Tomasi</string></property></item></widget></item>
+          <item row="0" column="2"><widget class="QLabel" name="labelCornerThreshold"><property name="text"><string>Threshold</string></property></widget></item>
+          <item row="0" column="3"><widget class="QSlider" name="cornerThresholdSlider"><property name="minimum"><number>1</number></property><property name="maximum"><number>254</number></property><property name="value"><number>120</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+          <item row="0" column="4"><widget class="QLabel" name="cornerThresholdVal"><property name="text"><string>120</string></property></widget></item>
+          <item row="0" column="5"><widget class="QLabel" name="labelNms"><property name="text"><string>NMS</string></property></widget></item>
+          <item row="0" column="6"><widget class="QSlider" name="nmsWindowSlider"><property name="minimum"><number>1</number></property><property name="maximum"><number>15</number></property><property name="value"><number>3</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+          <item row="0" column="7"><widget class="QLabel" name="nmsWindowVal"><property name="text"><string>3</string></property></widget></item>
+          <item row="1" column="0"><widget class="QLabel" name="labelHarrisK"><property name="text"><string>Harris k</string></property></widget></item>
+          <item row="1" column="1"><widget class="QSlider" name="harrisKSlider"><property name="minimum"><number>1</number></property><property name="maximum"><number>20</number></property><property name="value"><number>4</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+          <item row="1" column="2"><widget class="QLabel" name="harrisKVal"><property name="text"><string>0.04</string></property></widget></item>
+          <item row="1" column="3"><widget class="QPushButton" name="btnDetectCorners"><property name="text"><string>Detect Corners</string></property></widget></item>
+          <item row="1" column="4" colspan="2"><widget class="QLabel" name="cornerStatsHarris"><property name="text"><string>Harris: -</string></property></widget></item>
+          <item row="1" column="6" colspan="2"><widget class="QLabel" name="cornerStatsShiTomasi"><property name="text"><string>Shi-Tomasi: -</string></property></widget></item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="tab1ImagesLayout">
+          <item><layout class="QVBoxLayout" name="tab1Img1"><item><widget class="QLabel" name="labelCornerOriginal"><property name="text"><string>ORIGINAL</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item><item><widget class="ZoomableImageLabel" name="cornerDisplayOriginal"><property name="text"><string>Load Image 1</string></property></widget></item></layout></item>
+          <item><layout class="QVBoxLayout" name="tab1Img2"><item><widget class="QLabel" name="labelCornerResult"><property name="text"><string>RESULT</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item><item><widget class="ZoomableImageLabel" name="cornerDisplayResult"><property name="text"><string>Run detection</string></property></widget></item></layout></item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tabSift">
+       <attribute name="title"><string>  SIFT Extraction  </string></attribute>
+       <layout class="QVBoxLayout" name="tab2Root">
+        <item>
+         <layout class="QGridLayout" name="tab2ParamsGrid">
+          <item row="0" column="0"><widget class="QLabel" name="labelSiftCorner"><property name="text"><string>Corner Mode</string></property></widget></item>
+          <item row="0" column="1"><widget class="QComboBox" name="siftCornerModeCombo"><item><property name="text"><string>Harris</string></property></item><item><property name="text"><string>Shi-Tomasi</string></property></item></widget></item>
+          <item row="0" column="2"><widget class="QLabel" name="labelSiftContrast"><property name="text"><string>Contrast</string></property></widget></item>
+          <item row="0" column="3"><widget class="QSlider" name="siftContrastSlider"><property name="minimum"><number>1</number></property><property name="maximum"><number>30</number></property><property name="value"><number>7</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+          <item row="0" column="4"><widget class="QLabel" name="siftContrastVal"><property name="text"><string>0.007</string></property></widget></item>
+          <item row="0" column="5"><widget class="QLabel" name="labelSiftOct"><property name="text"><string>Octaves</string></property></widget></item>
+          <item row="0" column="6"><widget class="QSlider" name="siftOctavesSlider"><property name="minimum"><number>1</number></property><property name="maximum"><number>6</number></property><property name="value"><number>4</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+          <item row="0" column="7"><widget class="QLabel" name="siftOctavesVal"><property name="text"><string>4</string></property></widget></item>
+          <item row="1" column="0"><widget class="QLabel" name="labelSiftScale"><property name="text"><string>Scales</string></property></widget></item>
+          <item row="1" column="1"><widget class="QSlider" name="siftScalesSlider"><property name="minimum"><number>2</number></property><property name="maximum"><number>6</number></property><property name="value"><number>3</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+          <item row="1" column="2"><widget class="QLabel" name="siftScalesVal"><property name="text"><string>3</string></property></widget></item>
+          <item row="1" column="3"><widget class="QPushButton" name="btnRunSift"><property name="text"><string>Run SIFT</string></property></widget></item>
+          <item row="1" column="4" colspan="4"><widget class="QLabel" name="siftInfo"><property name="text"><string>Keypoints: -  |  Time: - ms</string></property></widget></item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="tab2ImagesLayout">
+          <item><layout class="QVBoxLayout" name="tab2Img1"><item><widget class="QLabel" name="labelSiftOriginal"><property name="text"><string>ORIGINAL</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item><item><widget class="ZoomableImageLabel" name="siftDisplayOriginal"><property name="text"><string>Load Image 1</string></property></widget></item></layout></item>
+          <item><layout class="QVBoxLayout" name="tab2Img2"><item><widget class="QLabel" name="labelSiftCorners"><property name="text"><string>CORNERS</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item><item><widget class="ZoomableImageLabel" name="siftDisplayCorners"><property name="text"><string>Corners appear here</string></property></widget></item></layout></item>
+          <item><layout class="QVBoxLayout" name="tab2Img3"><item><widget class="QLabel" name="labelSiftFeat"><property name="text"><string>SIFT FEATURES</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item><item><widget class="ZoomableImageLabel" name="siftDisplayFeatures"><property name="text"><string>SIFT features appear here</string></property></widget></item></layout></item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tabMatching">
+       <attribute name="title"><string>  Feature Matching  </string></attribute>
+       <layout class="QVBoxLayout" name="tab3Root">
+        <item>
+         <layout class="QGridLayout" name="tab3ParamsGrid">
+          <item row="0" column="0" colspan="2"><widget class="QLabel" name="matchROIInfo"><property name="text"><string>Draw ROI on feature image, then match to image 2.</string></property></widget></item>
+          <item row="1" column="0"><widget class="QPushButton" name="btnRemoveLastROI"><property name="text"><string>Undo ROI</string></property></widget></item>
+          <item row="1" column="1"><widget class="QPushButton" name="btnClearROI"><property name="text"><string>Clear ROIs</string></property></widget></item>
+          <item row="0" column="2"><widget class="QLabel" name="labelMatchMethod"><property name="text"><string>Method</string></property></widget></item>
+          <item row="0" column="3"><widget class="QComboBox" name="matchMethodCombo"><item><property name="text"><string>SSD</string></property></item><item><property name="text"><string>NCC</string></property></item></widget></item>
+          <item row="0" column="4"><widget class="QLabel" name="labelMatchThreshold"><property name="text"><string>Threshold</string></property></widget></item>
+          <item row="0" column="5"><widget class="QSlider" name="matchRatioSlider"><property name="minimum"><number>50</number></property><property name="maximum"><number>95</number></property><property name="value"><number>80</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+          <item row="0" column="6"><widget class="QLabel" name="matchRatioVal"><property name="text"><string>0.80</string></property></widget></item>
+          <item row="1" column="5"><widget class="QLabel" name="labelMatchHint"><property name="text"><string>SSD ratio or NCC min correlation</string></property></widget></item>
+          <item row="0" column="7" rowspan="2"><widget class="QPushButton" name="btnMatchFeatures"><property name="text"><string>Run Match</string></property></widget></item>
+          <item row="0" column="8" rowspan="2"><widget class="QLabel" name="matchInfo"><property name="text"><string>Matches: -  |  Inliers: -  |  Time: - ms</string></property></widget></item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="tab3ImagesLayout">
+          <item>
+           <layout class="QVBoxLayout" name="tab3ImgFeature">
+            <item><widget class="QLabel" name="labelMatchFeature"><property name="text"><string>FEATURE IMAGE (PROJECTION TARGET)</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+            <item>
+             <widget class="InteractiveLabel" name="matchDisplayFeature">
+              <property name="text"><string>Run SIFT first</string></property>
+              <property name="alignment"><set>Qt::AlignCenter</set></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="tab3ImgLoaded">
+            <item><widget class="QLabel" name="labelMatchLoaded"><property name="text"><string>IMAGE 2</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+            <item><widget class="ZoomableImageLabel" name="matchDisplayLoaded"><property name="text"><string>Load Image 2</string></property></widget></item>
+           </layout>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>ZoomableImageLabel</class>
+   <extends>QLabel</extends>
+   <header>ui/zoomable_image.hpp</header>
+  </customwidget>
+  <customwidget>
+   <class>InteractiveLabel</class>
+   <extends>QLabel</extends>
+   <header>ui/interactive_label.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

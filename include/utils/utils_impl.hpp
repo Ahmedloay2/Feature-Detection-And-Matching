@@ -1,32 +1,19 @@
 /**
  * @file utils_impl.hpp
- * @brief Template bodies for convolveH / convolveV.
+ * @brief Provides template implementations for separable convolution operations (convolveH/convolveV).
  *
- * Do NOT include this file directly — it is pulled in at the bottom of
- * utils.hpp automatically.
+ * ## Implementation Details
  *
- * Optimisation guide for this file
- * ─────────────────────────────────
- * 1. cv::parallel_for_  — splits the outer row loop across all CPU
- *    cores using OpenCV's thread pool (TBB / OpenMP / pthreads,
- *    depending on the OpenCV build).  Rows are independent so this is
- *    embarrassingly parallel.
+ * **Optimization Strategy:**
+ * - Separable convolution: Use convolveH then convolveV (or vice versa) for O(k) vs O(k²) complexity
+ * - Border handling: BORDER_REFLECT_101 avoids boundary checks inside inner loops
+ * - Vectorization hints: pragma GCC ivdep declares no loop-carried dependencies for auto-SIMD
+ * - Thread parallelism: cv::parallel_for_ (TBB/OpenMP) parallelizes over rows
+ * - Cache locality: Transposed vertical convolution for sequential memory access
  *
- * 2. Raw kernel pointer  — kernel.data() is resolved once before the
- *    parallel region, removing the std::vector overhead from the inner
- *    loop and making the memory layout visible to the auto-vectoriser.
- *
- * 3. #pragma GCC ivdep  — tells GCC/Clang "there are no loop-carried
- *    dependencies here; please vectorise".  Combined with -O3
- *    -march=native this lets the compiler emit SSE/AVX
- *    multiply-accumulate instructions for the inner loop.
- *
- * 4. Transpose trick in convolveV  — vertical convolution reads one
- *    element per row (strided access, terrible for cache).  Transposing
- *    first turns every column into a row, so the same convolveH kernel
- *    loop runs over contiguous memory.  cv::transpose is highly
- *    optimised (cache-oblivious tiled algorithm) so the round-trip
- *    transpose cost is small compared with the cache-miss savings.
+ * **Template Parameters:**
+ * Both functions are templates accepting float or double; explicit instantiations
+ * are in utils.cpp to avoid linker issues.
  */
 
 #pragma once
@@ -36,10 +23,7 @@
 
 namespace utils {
 
-// ─────────────────────────────────────────────────────────────────────────────
-// convolveH — horizontal 1-D convolution
-// ─────────────────────────────────────────────────────────────────────────────
-
+// Horizontal 1-D convolution
 template<typename T>
 cv::Mat convolveH(const cv::Mat& src, const std::vector<T>& kernel)
 {
@@ -60,7 +44,7 @@ cv::Mat convolveH(const cv::Mat& src, const std::vector<T>& kernel)
 
     cv::Mat dst(rows, cols, src.type());
 
-    // ── 2. Resolve the kernel pointer ONCE before entering threads ────────
+    // 2. Resolve kernel pointer before threads
     // Avoids std::vector indirection inside the hot loop and gives the
     // compiler a plain pointer it can reason about for vectorisation.
     const T* kptr = kernel.data();
@@ -84,7 +68,7 @@ cv::Mat convolveH(const cv::Mat& src, const std::vector<T>& kernel)
                 // No boundary check needed here.
                 const T* window = paddedRow + j;
 
-                // ── 4. Inner multiply-accumulate loop ─────────────────────
+                // 4. Multiply-accumulate loop──────────
                 // #pragma GCC ivdep asserts no loop-carried data dependency,
                 // enabling auto-vectorisation to SSE/AVX on -O3 -march=native.
 #pragma GCC ivdep
@@ -99,14 +83,11 @@ cv::Mat convolveH(const cv::Mat& src, const std::vector<T>& kernel)
     return dst;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// convolveV — vertical 1-D convolution via transpose + convolveH
-// ─────────────────────────────────────────────────────────────────────────────
-
+// Vertical 1-D convolution via transpose + convolveH
 template<typename T>
 cv::Mat convolveV(const cv::Mat& src, const std::vector<T>& kernel)
 {
-    // ── 5. Transpose trick ────────────────────────────────────────────────
+    // 5. Transpose trick─────────────────────────────────────
     // Naïve vertical convolution reads one pixel per row step — each read
     // jumps `cols * sizeof(T)` bytes, thrashing the CPU cache.
     //

@@ -1,25 +1,17 @@
 /**
  * @file grayscale.cpp
- * @brief Grayscale conversion using ITU-R BT.601 luma formula.
- *
- * Optimization over previous version
- * ────────────────────────────────────
- * Previous: convertTo full BGR image to CV_32F (full 3-channel copy),
- *           then cv::split (another 3 full copies), then weighted sum.
- *           Total: 4 full image passes + 3 extra allocations.
- *
- * This version: single pass over the source pixels directly.
- *   - Reads each BGR pixel once as uchar
- *   - Computes weighted sum inline
- *   - Writes directly to output float matrix
- *   Total: 1 pass, 1 allocation, no intermediate copies.
+ * @brief Implements RGB-to-grayscale conversion with standard luminance weighting.
  */
 
 #include "../include/processors/harris/grayscale.hpp"
 #include <stdexcept>
 #include "../include/model/image.hpp"
 
-void toGrayscale(Image& img)
+/// Converts color or grayscale images to float32 grayscale format.
+/// For 3-channel (BGR) images, applies ITU-R BT.601 luminance formula.
+/// For single-channel images, simply converts to CV_32FC1 (float).
+/// Throws exception if image has unsupported channel count.
+void convertToGrayscale(Image& img)
 {
     if (img.mat.channels() == 3)
     {

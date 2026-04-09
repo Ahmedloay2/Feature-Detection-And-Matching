@@ -1,5 +1,14 @@
+/**
+ * @file nms.cpp
+ * @brief Implements non-maximum suppression to eliminate non-local-maximum corner candidates.
+ */
+
 #include "../../../include/processors/harris/nms.hpp"
 
+/// Applies non-maximum suppression (NMS) to thin corner responses.
+/// For each pixel with response > 0, checks if it is a local maximum within
+/// a square neighborhood of half-width halfWindow. Pixels that are not local maxima
+/// are suppressed to 0. Stores thinned result with key "responseKey_corner" in cache.
 void applyCornerNMS(Image& img, const std::string& responseKey, int halfWindow) {
     std::string threshKey = responseKey + "_threshold";
     if (!img.has(threshKey))

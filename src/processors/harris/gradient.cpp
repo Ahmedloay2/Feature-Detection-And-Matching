@@ -1,6 +1,6 @@
 /**
  * @file gradient.cpp
- * @brief Implementation of gradient computation using Sobel operators.
+ * @brief Implements Sobel operator-based gradient magnitude and direction computation.
  */
 
 #include "../../../include/processors/harris/gradient.hpp"
@@ -9,23 +9,10 @@
 #include <cmath>
 #include <opencv2/core.hpp>
 
-/**
- * @brief Compute image gradient magnitude and direction using Sobel operators.
- *
- * Applies separable Sobel operators to compute two orthogonal gradients:
- * - Gx: Horizontal gradient using difference kernel [-1, 0, 1]
- * - Gy: Vertical gradient using difference kernel [-1, 0, 1]
- *
- * For each pixel, calculates:
- * - magnitude = sqrt(Gx^2 + Gy^2) - Represents edge strength
- * - angle = atan2(Gy, Gx) - Represents edge direction in radians
- *
- * This information is used for non-maximum suppression to thin edges.
- *
- * @param img The image to process. Reads img.cache["gaussian"],
- *            stores img.cache["gradient_magnitude"] and img.cache["gradient_angle"]
- * @throws std::runtime_error if Gaussian stage hasn't been computed
- */
+/// Computes image gradients using Sobel operators with separable kernels.
+/// For each pixel, calculates Gx and Gy (orthogonal gradients), then stores
+/// their squared values (Ix², Iy², IxIy) which are the raw ingredients
+/// for the structure tensor. Uses smooth kernel [1,2,1] and diff kernel [-1,0,1].
 void computeGradient(Image& img) {
     // Validate that Gaussian blur has been applied
     if (!img.has("grayscale"))

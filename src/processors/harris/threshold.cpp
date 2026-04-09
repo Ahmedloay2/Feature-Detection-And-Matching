@@ -1,6 +1,15 @@
+/**
+ * @file threshold.cpp
+ * @brief Implements binary thresholding of corner response maps.
+ */
+
 #include "../../../include/processors/harris/threshold.hpp"
 #include <model/image.hpp>
 
+/// Converts corner response map to binary by normalizing to [0,255] range
+/// and thresholding against a user-provided value. Finds global min/max,
+/// normalizes, then suppresses pixels below the threshold to 0.
+/// Stores binary output with key "responseKey_threshold" in image cache.
 void applyCornerThreshold(Image& img, const std::string& responseKey, float threshold) {
     if (!img.has(responseKey))
         throw std::runtime_error("response stage not computed yet.");

@@ -1,23 +1,21 @@
 /**
  * @file image_handler.hpp
- * @brief Image loading and I/O operations.
- *
- * This module provides functionality for loading image files from disk
- * and initializing them as Image objects for processing.
+ * @brief Declares image file loading and I/O operations for the detection pipeline.
  */
 
 #pragma once
 #include "model/image.hpp"
 #include <string>
 
-/**
- * @brief Load an image from disk into an Image object.
- *
- * Reads an image file from the specified path using OpenCV's imread function.
- * The image is loaded in BGR color format (CV_8UC3) if it's a color image.
- *
- * @param path The file path to the image to load
- * @return Image object containing the loaded image matrix
- * @throws std::runtime_error if the image file cannot be read or is corrupt
- */
+/// @brief Load an image file from disk into an Image container.
+///
+/// Reads an image from the specified file path using OpenCV's imread function.
+/// The image is loaded in BGR color space (CV_8UC3). Automatically validates that
+/// the file exists and is readable.
+///
+/// **Supported Formats:** PNG, JPEG, BMP, TIFF, and others supported by OpenCV
+///
+/// @param path File path to the image (absolute or relative to working directory)
+/// @return Image object with loaded mat in BGR format (CV_8UC3)
+/// @throws std::runtime_error if the file doesn't exist or cannot be read
 Image loadImage(const std::string& path);

@@ -1,35 +1,6 @@
 /**
  * @file utils.hpp
- * @brief Utility functions for image processing operations.
- *
- * Architecture
- * ────────────
- * Template bodies live in utils_impl.hpp (included at the bottom of
- * this file).  Non-template definitions live in utils.cpp.
- *
- * Explicit instantiations for <float> and <double> are provided in
- * utils.cpp so the linker can find them without re-instantiating in
- * every translation unit.  If you need a third type, add an explicit
- * instantiation there.
- *
- * Performance notes
- * ─────────────────
- * Convolution uses border-padding + cv::parallel_for_:
- *
- *   1. Pad the source image with reflected borders (copyMakeBorder).
- *   2. Split the row range across threads with cv::parallel_for_.
- *   3. Run the inner kernel loop with NO boundary checks.
- *
- * This gives us:
- *   - Zero branch overhead per pixel (padding guarantees safe access)
- *   - Compiler-visible straight multiply-accumulate → SIMD (SSE/AVX)
- *     via -O3 -march=native
- *   - Multi-core parallelism via OpenCV's built-in thread pool
- *     (backed by TBB or OpenMP depending on your OpenCV build)
- *
- * convolveV additionally transposes the input so the vertical pass
- * becomes a horizontal pass over contiguous memory rows — eliminating
- * the strided column-access pattern that defeats the CPU cache.
+ * @brief Declares reusable image processing utilities: convolution, pooling, and normalization.
  */
 
 #pragma once

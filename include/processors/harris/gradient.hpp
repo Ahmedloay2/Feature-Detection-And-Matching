@@ -1,9 +1,6 @@
 /**
  * @file gradient.hpp
- * @brief Gradient computation using Sobel operators.
- *
- * This module computes the image gradient (magnitude and direction) using
- * Sobel operators, which is the third stage of the Canny edge detection algorithm.
+ * @brief Declares Sobel-based image gradient computation (magnitude and direction).
  */
 
 #pragma once

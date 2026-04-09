@@ -14,6 +14,13 @@ lib/
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
+_deps/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/CTestTestfile.cmake
+**/install_manifest.txt
+**/compile_commands.json
 Testing/
 Makefile
 cmake_install.cmake
@@ -71,6 +78,7 @@ CTestTestfile.cmake
 
 ## VS Code
 .vscode/
+.history/
 
 ## CLion / JetBrains
 .idea/
@@ -87,11 +95,21 @@ CTestTestfile.cmake
 ## Qt Creator
 *.pro.user*
 *.qbs.user*
+*.autosave
+
+## Qt autogen / moc / qrc / ui generated
+ui_*.h
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
 
 ## Eclipse
 .project
 .cproject
 .settings/
+
+# CMake user-local presets
+CMakeUserPresets.json
 
 # =========================
 # OS files
@@ -106,7 +124,7 @@ Desktop.ini
 # =========================
 *.swp
 *~
-
-*.txt
-*.json
-.gitignore
+*.tmp
+*.temp
+*.bak
+*.orig

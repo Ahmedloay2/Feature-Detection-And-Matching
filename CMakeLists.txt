@@ -1,64 +1,60 @@
-﻿cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.14)
 project(FeatureDetectionAndMatching LANGUAGES CXX)
+
+set(PROJECT_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include")
+set(PROJECT_UI_DIR      "${CMAKE_SOURCE_DIR}/ui")
+set(PROJECT_SRC_DIR     "${CMAKE_SOURCE_DIR}/src")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Qt6 Configuration
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTOUIC_SEARCH_PATHS "${PROJECT_UI_DIR}")
 set(CMAKE_AUTOMOC_COMPILER_PREDEFINES ON)
+
+# Export compile commands for VS Code IntelliSense
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Export compile commands for VS Code IntelliSense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenCV REQUIRED)
 
-# ── Qt6 ──────────────────────────────────────────────────────────
+
+# Qt6 Libraries
 find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent)
-find_package(OpenMP REQUIRED)
-
-# ── Collect all source files from src/ ───────────────────────────
-file(GLOB_RECURSE SRC_FILES "src/*.cpp")
-file(GLOB_RECURSE HEADER_FILES "include/*.h" "include/*.hpp")
-
-if(NOT SRC_FILES)
-    message(FATAL_ERROR "No source files found in src/ directory! Create at least src/main.cpp")
-endif()
-
-# ── Build executable ──────────────────────────────────────────────
-add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEADER_FILES})
-
-# OpenMP
-find_package(OpenMP REQUIRED)
 
 # Source Files
 set(UI_FILES "${PROJECT_UI_DIR}/mainwindow.ui")
 
 set(CORE_FILES
     "${PROJECT_SRC_DIR}/main.cpp"
-    "${PROJECT_SRC_DIR}/ui/mainwindow.cpp"
-    "${PROJECT_SRC_DIR}/ui/mainwindow_setup.cpp"
-    "${PROJECT_SRC_DIR}/ui/mainwindow_shared.cpp"
-    "${PROJECT_SRC_DIR}/ui/mainwindow_tab1.cpp"
-    "${PROJECT_SRC_DIR}/ui/mainwindow_tab2.cpp"
-    "${PROJECT_SRC_DIR}/ui/mainwindow_tab3.cpp"
-    "${PROJECT_INCLUDE_DIR}/ui/mainwindow.h"
+    "${PROJECT_SRC_DIR}/mainwindow.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_setup.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_shared.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_tab1.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_tab2.cpp"
+    "${PROJECT_SRC_DIR}/mainwindow_tab3.cpp"
+    "${PROJECT_INCLUDE_DIR}/mainwindow.h"
 )
 
 set(WIDGET_FILES
-    "${PROJECT_SRC_DIR}/ui/interactive_label.cpp"
-    "${PROJECT_INCLUDE_DIR}/ui/interactive_label.h"
-    "${PROJECT_SRC_DIR}/ui/zoomable_image.cpp"
-    "${PROJECT_INCLUDE_DIR}/ui/zoomable_image.hpp"
+    "${PROJECT_SRC_DIR}/interactive_label.cpp"
+    "${PROJECT_INCLUDE_DIR}/widgets/interactive_label.h"
+    "${PROJECT_SRC_DIR}/zoomable_image.cpp"
+    "${PROJECT_INCLUDE_DIR}/widgets/zoomable_image.hpp"
 )
 
 set(SIFT_FILES
-    "${PROJECT_SRC_DIR}/core/SiftCore.cpp"
+    "${PROJECT_SRC_DIR}/SiftCore.cpp"
     "${PROJECT_SRC_DIR}/sift/sift_extract.cpp"
     "${PROJECT_SRC_DIR}/sift/sift_pyramid.cpp"
     "${PROJECT_SRC_DIR}/sift/sift_extrema_orientation.cpp"
     "${PROJECT_SRC_DIR}/sift/sift_descriptor.cpp"
-    "${PROJECT_SRC_DIR}/utils/Timer.cpp"
+    "${PROJECT_SRC_DIR}/Timer.cpp"
 )
 
 set(HARRIS_FILES
@@ -96,13 +92,15 @@ source_group(TREE ${CMAKE_SOURCE_DIR} FILES
     ${IO_UTIL_FILES}
 )
 
+# Include Directories
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
+    ${PROJECT_INCLUDE_DIR}
     ${OpenCV_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}_autogen/include
+    ${CMAKE_CURRENT_BINARY_DIR}/FeatureDetectionAndMatching_autogen/include
 )
 
+# Link Libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OpenCV_LIBS}
     ${OpenCV_LIBS}
@@ -112,11 +110,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     OpenMP::OpenMP_CXX
 )
 
-# ── Deploy Qt DLLs using windeployqt ─────────────────────────────
+# Post-Build: Deploy Qt DLLs
 find_program(WINDEPLOYQT_EXECUTABLE windeployqt
     HINTS "${CMAKE_PREFIX_PATH}/bin"
 )
-
 if(WINDEPLOYQT_EXECUTABLE)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${WINDEPLOYQT_EXECUTABLE}
@@ -129,20 +126,6 @@ if(WINDEPLOYQT_EXECUTABLE)
     )
 endif()
 
-# ── Startup project for Visual Studio ────────────────────────────
+# Set VS startup project
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
-
-# ── Helpful message to fix the cache error ───────────────────────
-if(EXISTS "${CMAKE_BINARY_DIR}/CMakeCache.txt")
-    file(STRINGS "${CMAKE_BINARY_DIR}/CMakeCache.txt" CACHE_SOURCE_DIR REGEX "^CMAKE_HOME_DIRECTORY:INTERNAL=.*")
-    if(CACHE_SOURCE_DIR)
-        string(REGEX REPLACE "^CMAKE_HOME_DIRECTORY:INTERNAL=" "" CACHE_SOURCE_DIR "${CACHE_SOURCE_DIR}")
-        if(NOT "${CACHE_SOURCE_DIR}" STREQUAL "${CMAKE_SOURCE_DIR}")
-            message(WARNING "\n⚠️  CMake cache was created from a different source directory:\n"
-                           "   Old: ${CACHE_SOURCE_DIR}\n"
-                           "   New: ${CMAKE_SOURCE_DIR}\n"
-                           "   Please delete the 'out' folder and reconfigure.\n")
-        endif()
-    endif()
-endif()

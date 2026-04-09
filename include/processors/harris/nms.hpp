@@ -1,29 +1,22 @@
 /**
  * @file nms.hpp
- * @brief Non-maximum suppression for edge thinning.
- *
- * This module implements non-maximum suppression, which thins edges to a single
- * pixel width by suppressing gradient values that are not local maxima along
- * the gradient direction.
+ * @brief Declares non-maximum suppression to thin corner responses to single pixels.
  */
 
 #pragma once
 #include "model/image.hpp"
 
-/**
- * @brief Suppress non-maximum gradient values to thin edges.
- *
- * For each pixel, compares its gradient magnitude with two neighbors along
- * the gradient direction (quantized to 4 main directions: horizontal, vertical,
- * and two diagonals). The pixel is kept only if it is a local maximum.
- *
- * Direction thresholds:
- * - 0-22.5°, 157.5-180°: Horizontal (left/right neighbors)
- * - 22.5-67.5°: Diagonal (top-right/bottom-left)
- * - 67.5-112.5°: Vertical (top/bottom neighbors)
- * - 112.5-157.5°: Diagonal (top-left/bottom-right)
- *
- * @param img The image to process. Reads img.cache["gradient_magnitude"] and
- *            img.cache["gradient_angle"], stores to img.cache["nms"]
- */
+/// @brief Apply non-maximum suppression (NMS) to corner response maps.
+///
+/// NMS thins corner responses by suppressing pixels that are not local maxima
+/// within a window. For each pixel, if its response is lower than the maximum
+/// in the surrounding neighborhood, it is suppressed to zero. This ensures
+/// that each corner is represented by a single peak pixel.
+///
+/// @param img The image to process. Reads img.cache["harris_response"] or
+///            img.cache["shi_tomasi_response"].
+///            Stores img.cache["nms_result"] (CV_32FC1, binary-like: 0 or original value).
+/// @param responseKey Key in img.cache for input response map (e.g., "harris_response")
+/// @param halfWindow Half-width of NMS neighborhood window (total window is 2*half+1 x 2*half+1)
+/// @throws std::runtime_error if response stage hasn't been computed yet
 void applyCornerNMS(Image& img, const std::string& responseKey, int halfWindow);

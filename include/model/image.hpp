@@ -1,23 +1,9 @@
-#pragma once
-
 /**
  * @file image.hpp
- * @brief Core image data container with typed pipeline cache.
- *
- * SOLID notes
- * ─────────────
- * SRP  – Image only owns data; processors operate on it externally.
- * OCP  – New stages can be added without touching this header.
- * LSP  – No inheritance here; kept as a plain value type.
- * ISP  – Thin interface; callers only call what they need.
- * DIP  – Processors depend on this abstraction, not on concrete types.
- *
- * Performance notes
- * ─────────────────
- * • Cache uses string_view-keyed lookup where possible (C++17).
- * • cv::Mat is ref-counted; store() avoids deep copies.
- * • clearCache() releases all intermediate memory in one shot.
+ * @brief Defines the Image data container that caches intermediate processing results by name.
  */
+
+#pragma once
 
 #include <opencv2/core.hpp>
 #include <string>
@@ -26,26 +12,46 @@
 #include <stdexcept>
 #include <optional>
 
+/// @brief Image container encapsulating the source image and a processing pipeline cache.
+///
+/// This class manages both the original image (in `mat`) and intermediate results
+/// from processing stages (grayscale, gradient, structure_tensor, harris_response, etc.)
+/// stored in a hash map. Allows processors to avoid redundant recomputation by caching.
+///
+/// **Usage Pattern:**
+/// ```cpp
+/// Image img;
+/// img.mat = cv::imread("photo.jpg");       // Set source
+/// convertToGrayscale(img);                 // Stores result in cache["grayscale"]
+/// if (img.has("grayscale")) {              // Check if stage exists
+///     cv::Mat gray = img.get("grayscale"); // Retrieve cached result
+/// }
+/// ```
 struct Image
 {
     // ── data ─────────────────────────────────────────────────────────────────
-    cv::Mat mat;  ///< Source image (CV_8UC3 BGR)
+    cv::Mat mat;  ///< Source image (CV_8UC3 BGR or other formats)
 
     // ── cache API ─────────────────────────────────────────────────────────────
 
-    /// Store an intermediate result.  Mat header is copied; pixel data is shared.
+    /// @brief Store an intermediate processing result under a named key.
+    /// Mat header is copied; pixel data is shared (reference counted).
     void store(std::string_view name, const cv::Mat& result)
     {
         cache_[std::string(name)] = result;
     }
 
-    /// Move-store to avoid ref-count churn when the caller no longer needs the mat.
+    /// @brief Move-store variant to reduce reference-count churn.
+    /// Use when the original Mat is no longer needed.
     void store(std::string_view name, cv::Mat&& result)
     {
         cache_[std::string(name)] = std::move(result);
     }
 
-    /// Retrieve a stage.  Throws only on programmer error (missing stage).
+    /// @brief Retrieve a cached stage result by name.
+    /// @param name Stage name (e.g., "grayscale", "gradient_xx")
+    /// @return Const reference to the cached Mat
+    /// @throws std::runtime_error if key not found
     [[nodiscard]] const cv::Mat& get(std::string_view name) const
     {
         auto it = cache_.find(std::string(name));
@@ -54,7 +60,10 @@ struct Image
         return it->second;
     }
 
-    /// Non-throwing lookup — prefer this in hot paths.
+    /// @brief Non-throwing lookup returning an optional reference.
+    /// Prefer this in performance-critical paths to avoid exceptions.
+    /// @param name Stage name
+    /// @return Optional const reference to the cached Mat, or std::nullopt if not found
     [[nodiscard]] std::optional<std::reference_wrapper<const cv::Mat>>
         tryGet(std::string_view name) const noexcept
     {
@@ -63,11 +72,16 @@ struct Image
         return std::cref(it->second);
     }
 
+    /// @brief Check if a stage result is cached without retrieving it.
+    /// @param name Stage name
+    /// @return true if stage exists in cache, false otherwise
     [[nodiscard]] bool has(std::string_view name) const noexcept
     {
         return cache_.count(std::string(name)) != 0u;
     }
 
+    /// @brief Clear all cached intermediate results.
+    /// Frees memory but preserves the source image (mat).
     void clearCache() noexcept { cache_.clear(); }
 
 private:
