@@ -24,7 +24,6 @@ A **Qt6-based interactive desktop application** implementing classical computer 
 - [Project Architecture](#project-architecture)
 - [Code Organization](#code-organization)
 - [Dependencies](#dependencies)
-- [Building & Running](#building--running)
 - [Usage Guide](#usage-guide)
   - [Tab 1: Corner Detection](#tab-1--corner-detection)
   - [Tab 2: SIFT Extraction](#tab-2--sift-extraction)
@@ -353,7 +352,6 @@ ui/
 - **Qt6:** Pre-built binaries at `D:/QT/6.10.2/msvc2022_64` (configure as needed)
 - **OpenCV:** Compiled library at `D:/opencv/build` with shared libraries (`.dll` format)
 - **Compiler Toolchain:** MinGW Makefiles or Visual Studio generator
-- **Python:** Optional, for build utilities
 
 ### Runtime Dependencies
 
