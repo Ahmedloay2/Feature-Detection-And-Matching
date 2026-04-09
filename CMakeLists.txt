@@ -60,13 +60,17 @@ set(HARRIS_FILES
     "${PROJECT_SRC_DIR}/processors/harris/gaussian.cpp"
 )
 
+set(MATCHING_FILES
+    "${PROJECT_SRC_DIR}/processors/feature_matcher.cpp"
+)
+
 set(IO_UTIL_FILES
     "${PROJECT_SRC_DIR}/utils/utils.cpp"
     "${PROJECT_SRC_DIR}/io/image_handler.cpp"
 )
 
 add_executable(${PROJECT_NAME} 
-    ${UI_FILES} ${CORE_FILES} ${WIDGET_FILES} ${SIFT_FILES} ${HARRIS_FILES} ${IO_UTIL_FILES})
+    ${UI_FILES} ${CORE_FILES} ${WIDGET_FILES} ${SIFT_FILES} ${HARRIS_FILES} ${IO_UTIL_FILES} ${MATCHING_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${PROJECT_INCLUDE_DIR}
