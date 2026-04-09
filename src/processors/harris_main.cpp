@@ -22,36 +22,43 @@ using Clock = std::chrono::high_resolution_clock;
 /// Executes stages in order: grayscale -> gradient -> structure tensor ->
 /// response computation (Harris or Shi-Tomasi) -> threshold -> NMS.
 /// Times each stage and prints to stdout. Returns detected corner pixel coordinates.
-std::vector<cv::Point> applyHarris(Image& image, float k,
-    const std::string& mode, float threshold, int halfWindow)
+std::vector<cv::Point> applyHarris(Image &image, float k,
+                                   const std::string &mode, float threshold, int halfWindow)
 {
-    auto t = [](auto t0) {
+    auto t = [](auto t0)
+    {
         return std::chrono::duration<double, std::milli>(
-            Clock::now() - t0).count();
-        };
+                   Clock::now() - t0)
+            .count();
+    };
 
     auto t0 = Clock::now();
-    if (!image.has("grayscale")) {
-        toGrayscale(image);
+    if (!image.has("grayscale"))
+    {
+        convertToGrayscale(image);
     }
     std::cout << "  grayscale:        " << t(t0) << " ms\n";
 
     t0 = Clock::now();
-    if (!image.has("gradient_xx")) {
+    if (!image.has("gradient_xx"))
+    {
         computeGradient(image);
     }
     std::cout << "  gradient:         " << t(t0) << " ms\n";
 
     t0 = Clock::now();
-    if (!image.has("structure_xx")) {
+    if (!image.has("structure_xx"))
+    {
         applyStructureTensor(image);
     }
     std::cout << "  structure tensor: " << t(t0) << " ms\n";
 
     t0 = Clock::now();
     const std::string responseKey = mode + "_response";
-    if (mode == "shi_tomasi") computeShiTomasi(image);
-    else                      computeHarrisResponse(image, k);
+    if (mode == "shi_tomasi")
+        computeShiTomasi(image);
+    else
+        computeHarrisResponse(image, k);
     std::cout << "  response:         " << t(t0) << " ms\n";
 
     t0 = Clock::now();
@@ -63,9 +70,10 @@ std::vector<cv::Point> applyHarris(Image& image, float k,
     std::cout << "  NMS:              " << t(t0) << " ms\n";
 
     std::vector<cv::Point> corners;
-    const cv::Mat& result = image.get(responseKey + "_corner");
-    for (int i = 0; i < result.rows; ++i) {
-        const float* row = result.ptr<float>(i);
+    const cv::Mat &result = image.get(responseKey + "_corner");
+    for (int i = 0; i < result.rows; ++i)
+    {
+        const float *row = result.ptr<float>(i);
         for (int j = 0; j < result.cols; ++j)
             if (row[j] > 0.f)
                 corners.push_back(cv::Point(j, i));
