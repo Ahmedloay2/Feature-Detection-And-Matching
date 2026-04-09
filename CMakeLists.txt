@@ -8,6 +8,9 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC_COMPILER_PREDEFINES ON)
 
+# Export compile commands for VS Code IntelliSense
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 find_package(OpenCV REQUIRED)
 
 # ── Qt6 ──────────────────────────────────────────────────────────
@@ -25,6 +28,74 @@ endif()
 # ── Build executable ──────────────────────────────────────────────
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEADER_FILES})
 
+# OpenMP
+find_package(OpenMP REQUIRED)
+
+# Source Files
+set(UI_FILES "${PROJECT_UI_DIR}/mainwindow.ui")
+
+set(CORE_FILES
+    "${PROJECT_SRC_DIR}/main.cpp"
+    "${PROJECT_SRC_DIR}/ui/mainwindow.cpp"
+    "${PROJECT_SRC_DIR}/ui/mainwindow_setup.cpp"
+    "${PROJECT_SRC_DIR}/ui/mainwindow_shared.cpp"
+    "${PROJECT_SRC_DIR}/ui/mainwindow_tab1.cpp"
+    "${PROJECT_SRC_DIR}/ui/mainwindow_tab2.cpp"
+    "${PROJECT_SRC_DIR}/ui/mainwindow_tab3.cpp"
+    "${PROJECT_INCLUDE_DIR}/ui/mainwindow.h"
+)
+
+set(WIDGET_FILES
+    "${PROJECT_SRC_DIR}/ui/interactive_label.cpp"
+    "${PROJECT_INCLUDE_DIR}/ui/interactive_label.h"
+    "${PROJECT_SRC_DIR}/ui/zoomable_image.cpp"
+    "${PROJECT_INCLUDE_DIR}/ui/zoomable_image.hpp"
+)
+
+set(SIFT_FILES
+    "${PROJECT_SRC_DIR}/core/SiftCore.cpp"
+    "${PROJECT_SRC_DIR}/sift/sift_extract.cpp"
+    "${PROJECT_SRC_DIR}/sift/sift_pyramid.cpp"
+    "${PROJECT_SRC_DIR}/sift/sift_extrema_orientation.cpp"
+    "${PROJECT_SRC_DIR}/sift/sift_descriptor.cpp"
+    "${PROJECT_SRC_DIR}/utils/Timer.cpp"
+)
+
+set(HARRIS_FILES
+    "${PROJECT_SRC_DIR}/processors/harris_main.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/gradient.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/grayscale.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/harris_response.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/shi_tomasi.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/strcutre_tensor.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/threshold.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/nms.cpp"
+    "${PROJECT_SRC_DIR}/processors/harris/gaussian.cpp"
+)
+
+set(IO_UTIL_FILES
+    "${PROJECT_SRC_DIR}/utils/utils.cpp"
+    "${PROJECT_SRC_DIR}/io/image_handler.cpp"
+)
+
+add_executable(${PROJECT_NAME}
+    ${UI_FILES}
+    ${CORE_FILES}
+    ${WIDGET_FILES}
+    ${SIFT_FILES}
+    ${HARRIS_FILES}
+    ${IO_UTIL_FILES}
+)
+
+source_group(TREE ${CMAKE_SOURCE_DIR} FILES
+    ${UI_FILES}
+    ${CORE_FILES}
+    ${WIDGET_FILES}
+    ${SIFT_FILES}
+    ${HARRIS_FILES}
+    ${IO_UTIL_FILES}
+)
+
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${OpenCV_INCLUDE_DIRS}
@@ -34,8 +105,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OpenCV_LIBS}
+    ${OpenCV_LIBS}
     Qt6::Widgets
     Qt6::Concurrent
+    OpenMP::OpenMP_CXX
     OpenMP::OpenMP_CXX
 )
 
